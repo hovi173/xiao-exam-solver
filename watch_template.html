@@ -110,6 +110,46 @@
     }
 
     /* =========================================================================
+       PRZEŁĄCZNIK TRYBU AI / TRYB TESTOWY ZDJĘĆ
+       ========================================================================= */
+    .btn-ai-toggle {
+      background: #0f172a;
+      border: 1.5px solid #334155;
+      color: #94a3b8;
+      border-radius: 999px;
+      padding: 5px 13px;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      transition: all 0.25s ease;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+    }
+    .btn-ai-toggle:active {
+      transform: scale(0.96);
+    }
+    .btn-ai-toggle.ai-active {
+      background: #064e3b;
+      border-color: #10b981;
+      color: #6ee7b7;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+    }
+    .ai-status-dot {
+      width: 7.5px;
+      height: 7.5px;
+      border-radius: 50%;
+      background: #64748b;
+      transition: all 0.25s ease;
+    }
+    .btn-ai-toggle.ai-active .ai-status-dot {
+      background: #10b981;
+      box-shadow: 0 0 7px #10b981;
+    }
+
+    /* =========================================================================
        ANIMOWANY BĄBEL GEMINI / SIRI (TRANSFORMING FLUID ORB)
        ========================================================================= */
     .gemini-orb-wrapper {
@@ -837,6 +877,14 @@
       <div id="statusTime" class="status-time">Oczekiwanie...</div>
     </div>
 
+    <!-- PRZEŁĄCZNIK TRYBU AI / TESTU ZDJĘĆ -->
+    <div style="text-align: center; margin: 4px auto 12px auto;">
+      <button id="btnAiToggle" class="btn-ai-toggle" onclick="toggleAiMode()">
+        <span id="aiToggleDot" class="ai-status-dot"></span>
+        <span id="aiToggleText">AI: WYŁĄCZONE (TEST KADRU)</span>
+      </button>
+    </div>
+
     <!-- KONTENER NA ROZWIĄZANIA GENEROWANE PRZEZ AI -->
     <div id="solutionsContainer">
       <div class="idle-state">
@@ -1302,6 +1350,57 @@
     }
 
     // =========================================================================
+    // OBSŁUGA PRZEŁĄCZNIKA TRYBU AI (WŁĄCZ / WYŁĄCZ AI - TRYB TESTOWY ZDJĘĆ)
+    // =========================================================================
+    let currentAiEnabled = false;
+
+    function updateAiButtonUI(enabled) {
+      currentAiEnabled = enabled;
+      const btn = document.getElementById('btnAiToggle');
+      const txt = document.getElementById('aiToggleText');
+      if (btn && txt) {
+        if (enabled) {
+          btn.classList.add('ai-active');
+          txt.innerText = 'AI: WŁĄCZONE (OPUS 5.5)';
+        } else {
+          btn.classList.remove('ai-active');
+          txt.innerText = 'AI: WYŁĄCZONE (TEST KADRU)';
+        }
+      }
+    }
+
+    async function toggleAiMode(forceEnable = null) {
+      if (navigator.vibrate) {
+        try { navigator.vibrate([45]); } catch (e) {}
+      }
+      let url = '/api/toggle_ai';
+      if (forceEnable !== null) {
+        url += '?enabled=' + (forceEnable ? 'true' : 'false');
+      }
+      try {
+        const res = await fetch(url, { method: 'POST' });
+        const data = await res.json();
+        updateAiButtonUI(data.ai_enabled);
+        if (forceEnable === true) {
+          // Jeśli wymuszono włączenie i rozwiązanie, od razu odpalamy solve dla zapisanego kadru
+          triggerSolveFromLive(true);
+        }
+      } catch (e) {
+        console.error("Błąd przełączania AI:", e);
+      }
+    }
+
+    async function fetchAiStatus() {
+      try {
+        const res = await fetch('/api/ai_status?t=' + Date.now());
+        if (res.ok) {
+          const data = await res.json();
+          updateAiButtonUI(data.ai_enabled);
+        }
+      } catch (e) {}
+    }
+
+    // =========================================================================
     // CYKLICZNE POBIERANIE WYNIKÓW Z SERWERA (BEZDOTYKOWY TRYB EGZAMINACYJNY)
     // =========================================================================
     let hasVibratedForCurrentProcessing = false;
@@ -1333,6 +1432,9 @@
         const data = await res.json();
         
         isNetworkOnline = true;
+        if (data.ai_enabled !== undefined) {
+          updateAiButtonUI(data.ai_enabled);
+        }
 
         // STAN 1: PRZETWARZANIE W TOKU (AI ANALIZUJE / ROZWIĄZUJE)
         if (data.status === 'processing') {
@@ -1476,6 +1578,7 @@
 
     window.addEventListener('DOMContentLoaded', () => {
       setTimeout(renderMath, 400);
+      fetchAiStatus();
       updateMainCamStatus();
       initLiveTouchEvents();
       requestScreenWakeLock();

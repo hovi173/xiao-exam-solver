@@ -31,19 +31,41 @@ FINAL_PHOTOS_DIR = os.path.join(BASE_DIR, "final_photos")
 CAPTURED_DIR = os.path.join(BASE_DIR, "captured_photos")
 WATCH_TEMPLATE_PATH = os.path.join(BASE_DIR, "watch_template.html")
 SOLUTION_FILE = os.path.join(BASE_DIR, "latest_solution.json")
+AI_MODE_FILE = os.path.join(BASE_DIR, "ai_mode.json")
 LIVE_FRAME_PATH = os.path.join(FINAL_PHOTOS_DIR, "latest_live_frame.jpg")
 
 os.makedirs(FINAL_PHOTOS_DIR, exist_ok=True)
 os.makedirs(CAPTURED_DIR, exist_ok=True)
 
-MOCK_MODE = True
+MOCK_MODE = False
+AI_ENABLED = False  # Domyślnie tryb testowy (bez zużywania tokenów / API), przełączany w UI
 OCR_MODEL = "claude-haiku-5-5"
 SOLVER_MODEL = "claude-opus-5-5"
 ANTHROPIC_API_KEY = ""
 
+def load_ai_mode():
+    global AI_ENABLED
+    if os.path.exists(AI_MODE_FILE):
+        try:
+            with open(AI_MODE_FILE, "r", encoding="utf-8") as f:
+                d = json.load(f)
+                AI_ENABLED = bool(d.get("ai_enabled", False))
+        except Exception:
+            pass
+
+def save_ai_mode(enabled):
+    global AI_ENABLED
+    AI_ENABLED = enabled
+    try:
+        with open(AI_MODE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"ai_enabled": AI_ENABLED}, f)
+    except Exception as e:
+        print(f"[AI MODE] Błąd zapisu: {e}")
+
+load_ai_mode()
+
 def reload_env():
     global MOCK_MODE, OCR_MODEL, SOLVER_MODEL, ANTHROPIC_API_KEY
-    # 1. Odczyt ze zmiennych środowiskowych kontenera / systemu (Render, Docker, Hugging Face)
     if "MOCK_MODE" in os.environ:
         MOCK_MODE = (os.environ["MOCK_MODE"].strip().lower() in ("true", "1", "yes"))
     if "OCR_MODEL" in os.environ:
@@ -53,7 +75,6 @@ def reload_env():
     if "ANTHROPIC_API_KEY" in os.environ:
         ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"].strip()
 
-    # 2. Opcjonalne nadpisanie z pliku .env (przydatne przy testach lokalnych)
     ENV_FILE = os.path.join(BASE_DIR, ".env")
     if os.path.exists(ENV_FILE):
         try:
@@ -78,7 +99,8 @@ latest_solution = {
     "time": time.strftime("%H:%M:%S"),
     "hash": "init",
     "guidance": "",
-    "mock_mode": MOCK_MODE
+    "mock_mode": MOCK_MODE,
+    "ai_enabled": AI_ENABLED
 }
 
 if os.path.exists(SOLUTION_FILE):
@@ -92,35 +114,40 @@ burst_accumulator = {}
 app = Bottle()
 
 # =========================================================================
-# PROMPTY DLA ETAPU 1 (HAIKU 5.5 - BARDZO WYROZUMIAŁY AUDYTOR) I ETAPU 2 (OPUS 5.5)
+# PROMPTY DLA ETAPU 1 (HAIKU 5.5 - AUDYTOR) I ETAPU 2 (OPUS 5.5 - ROZWIĄZYWACZ)
 # =========================================================================
 AUDITOR_PROMPT = """Jesteś asystentem weryfikującym czytelność zdjęć arkuszy zadań egzaminacyjnych.
-Twoim celem jest sprawdzić, czy na zdjęciu widać treść jakiegokolwiek pytania, zadania, schematu lub wzorów.
+Twoim celem jest określenie tematyki zadań i wyekstrahowanie kluczowych tematów.
 
 ZASADY:
-1. BĄDŹ MAKSYMALNIE WYROZUMIAŁY: Jeśli na zdjęciu widać chociaż fragment treści zadania, numer pytania, wzór matematyczny lub schemat (nawet jeśli kadr jest ciemny, lekko przekrzywiony lub nieidealny) -> ZAWSZE ustaw "is_usable": true!
-2. Przekazuj materiał do Claude Opus 5.5, który doskonale poradzi sobie z odczytaniem trudniejszego pisma i wzorów.
-3. Tylko w skrajnym przypadku, gdy na zdjęciu jest absolutnie 100% czarna plama, sufit, podłoga lub całkowite rozmycie uniemożliwiające odczytanie czegokolwiek -> ustaw "is_usable": false i podaj krótką wskazówkę w "camera_instruction".
+1. BĄDŹ MAKSYMALNIE WYROZUMIAŁY: ZAWSZE ustawiaj "is_usable": true, chyba że kadr jest dosłownie w 100% czarny bez ani jednego fotonu lub litery.
+2. Nawet jeśli kadr jest ciemny, lekko rozmazany lub w cieniu, Claude Opus 5.5 z łatwością wytęży wzrok i odczyta wzory.
+3. W polu "detected_summary" podaj krótki temat (np. "Całka oznaczona x^2 ln x", "Obwód RLC").
 
 ZWRÓĆ WYŁĄCZNIE CZYSTY KOD JSON:
 {
   "is_usable": true,
-  "detected_summary": "Krótkie podsumowanie co widać (np. Zadanie z obwodów)",
+  "detected_summary": "Temat zadania",
   "camera_instruction": ""
 }"""
 
-OPUS_SOLVER_PROMPT = """Jesteś profesorem nauk ścisłych, inżynierii i matematyki.
-Twoim celem jest dokładne odczytanie ze zdjęć wszystkich zadań i przedstawienie pełnego, wzorcowego rozwiązania.
+OPUS_SOLVER_PROMPT = """Jesteś profesorem nauk ścisłych, inżynierii i matematyki wyższej.
+Twoim celem jest dokładne odczytanie ze zdjęć wszystkich zadań i przedstawienie PEŁNEGO, BEZBŁĘDNEGO rozwiązania krok po kroku.
 
-ZASADY:
-1. ZERO powitań, komentarzy typu 'Oto rozwiązanie'.
-2. Zwróć czysty kod HTML przygotowany pod czarne tło (#000000).
-3. Do wszelkich wzorów, liczb i jednostek używaj WYŁĄCZNIE KaTeX:
+BEZWZGLĘDNY NAKAZ ROZWIĄZYWANIA:
+- NIGDY, pod żadnym pozorem nie odrzucaj zdjęcia! Nie pisz, że zdjęcie jest ciemne, niewyraźne, ucięte ani nie proś o ponowne wykonanie!
+- Twoim bezwzględnym zadaniem jest wytężenie wzroku, odczytanie wszystkich widocznych wzorów, cyfr, symboli i tekstu (nawet w głębokim cieniu lub przy słabym oświetleniu) i ROZWIĄZANIE ZADANIA.
+- Jeśli jakiejś cyfry lub indeksu nie widać ze 100% pewnością z powodu cienia, przyjmij najbardziej logiczną i prawdopodobną wartość matematyczną oraz dokończ pełne obliczenia!
+
+ZASADY FORMATOWANIA DLA SMARTWATCHA:
+1. ZERO powitań, komentarzy wstępnych, pogawędek czy usprawiedliwień.
+2. Zwróć czysty kod HTML przygotowany pod głębokie czarne tło (#000000).
+3. Do wszelkich wzorów, liczb i jednostek używaj KaTeX:
    - Blokowe: $$ ... $$
    - W tekście: $ ... $
-   - Zawsze eleganckie ułamki: \\frac{a}{b}, jednostki: \\text{V}, \\text{A}, \\text{s}.
-4. Jeśli zadanie wymaga schematu, ZAWSZE wygeneruj profesjonalny schemat inline <svg ...> z ciemnym tłem.
-5. Zamknij zadania w tagu <article class="full-task"> z ramką wyniku końcowego.
+   - Zawsze eleganckie ułamki: \\frac{a}{b}, jednostki: \\text{V}, \\text{A}, \\text{s}, całki: \\int ... dx.
+4. Jeśli zadanie wymaga schematu lub wykresu, ZAWSZE wygeneruj profesjonalny schemat inline <svg ...> z ciemnym tłem.
+5. Zamknij zadania w tagu <article class="full-task"> z ramką wyniku końcowego (<div class="result-box"><div class="result-label">WYNIK KOŃCOWY</div><div class="result-val">$$...$$</div></div>).
 """
 
 def run_stage_1_auditor(crop_paths):
@@ -316,6 +343,50 @@ def generate_mock_solution(crop_paths, capture_time):
     return html.replace("__CAPTURE_TIME__", capture_time).replace("__IMG_HTML__", img_html)
 
 # =========================================================================
+# PODGLĄD ZDJĘCIA W TRYBIE TESTOWYM (AI WYŁĄCZONE - KOSZT 0 ZŁ)
+# =========================================================================
+def generate_photo_test_html(full_enhanced_path, mean_brightness, capture_time):
+    thumb_b64 = ""
+    if os.path.exists(full_enhanced_path):
+        with open(full_enhanced_path, "rb") as f:
+            thumb_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    if mean_brightness < 60.0:
+        badge = '<span style="color:#ef4444; background:#450a0a; padding:2px 8px; border-radius:4px; font-weight:bold;">⚠️ BARDZO CIEMNO (<60)</span>'
+        tip = "Kamera potrzebuje więcej światła lub dłuższej adaptacji AEC."
+    elif mean_brightness < 110.0:
+        badge = '<span style="color:#f59e0b; background:#451a03; padding:2px 8px; border-radius:4px; font-weight:bold;">⚠️ ŚREDNIA JASNOŚĆ (60-110)</span>'
+        tip = "Tekst czytelny po rozjaśnieniu Gamma. Można śmiało włączyć AI."
+    else:
+        badge = '<span style="color:#10b981; background:#064e3b; padding:2px 8px; border-radius:4px; font-weight:bold;">✅ DOBRA EKSPOZYCJA (>110)</span>'
+        tip = "Papier jest jasny, czcionka ostra i kontrastowa."
+
+    img_html = f"<img src='data:image/jpeg;base64,{thumb_b64}' style='max-width: 100%; height: auto; border-radius: 6px; border: 1px solid #334155; display: block; margin: 8px auto;' />" if thumb_b64 else "<div style='color: #64748b;'>Brak zdjęcia</div>"
+
+    html = f"""
+    <div style="background: #1e1b4b; border: 1.5px solid #6366f1; border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; font-size: 11px; display: flex; justify-content: space-between; align-items: center;">
+      <span style="color: #a5b4fc; font-weight: 800;">📷 TEST KADRU (AI WYŁĄCZONE)</span>
+      <span style="color: #c7d2fe;">{capture_time}</span>
+    </div>
+
+    <div style="background: #090d16; border: 1px solid #1e293b; border-radius: 8px; padding: 8px; margin-bottom: 14px; text-align: center;">
+      <div style="font-size: 10px; color: #94a3b8; font-weight: bold; margin-bottom: 4px; text-transform: uppercase;">Odebrany kadr z kamery (Gamma Boost + CLAHE)</div>
+      {img_html}
+      <div style="font-size: 11px; color: #cbd5e1; text-align: left; padding: 4px 6px; line-height: 1.6;">
+        <div>Średnia jasność: <strong>{round(mean_brightness, 1)} / 255</strong></div>
+        <div style="margin-top:2px;">Ocena: {badge}</div>
+        <div style="color: #94a3b8; font-size: 10px; margin-top: 4px;">💡 {tip}</div>
+      </div>
+      <div style="margin-top: 10px;">
+        <button onclick="toggleAiMode(true)" style="background: #059669; color: white; border: none; padding: 7px 16px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer; box-shadow: 0 0 10px rgba(16,185,129,0.4);">
+          ⚡ WŁĄCZ AI I ROZWIĄŻ TEN KADR
+        </button>
+      </div>
+    </div>
+    """
+    return html
+
+# =========================================================================
 # OBRÓBKA OBRAZU
 # =========================================================================
 def select_sharpest_frame(frames_bytes):
@@ -342,7 +413,11 @@ def enhance_and_crop(raw_jpeg_bytes):
     nparr = np.frombuffer(raw_jpeg_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
-        return None, []
+        return None, [], 0.0
+
+    # Zapisz natywny plik surowy dla diagnostyki
+    raw_path = os.path.join(FINAL_PHOTOS_DIR, "raw_capture.jpg")
+    cv2.imwrite(raw_path, img, [cv2.IMWRITE_JPEG_QUALITY, 93])
 
     # Zachowaj orientację naturalną (nie obracaj sztucznie jeśli szerokość >= wysokość)
     h_orig, w_orig = img.shape[:2]
@@ -351,11 +426,13 @@ def enhance_and_crop(raw_jpeg_bytes):
     else:
         result = img.copy()
 
-    # Automatyczne rozjaśnienie (Gamma Correction dla ciemnych kadrów)
+    # Zmierz jasność klatki
     gray = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
     mean_val = float(np.mean(gray))
-    if mean_val < 130.0:
-        gamma = max(0.35, mean_val / 140.0)
+
+    # Automatyczne rozjaśnienie (Gamma Correction dla ciemnych kadrów)
+    if mean_val < 140.0:
+        gamma = max(0.28, mean_val / 150.0)
         inv_gamma = 1.0 / gamma
         lut = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
         result = cv2.LUT(result, lut)
@@ -399,7 +476,7 @@ def enhance_and_crop(raw_jpeg_bytes):
 
     # Do analizy dołączamy także pełne zdjęcie
     crop_paths.insert(0, full_path)
-    return full_path, crop_paths
+    return full_path, crop_paths, mean_val
 
 # =========================================================================
 # ENDPOINTY SERWERA
@@ -420,6 +497,7 @@ def health_check():
         "status": "ok",
         "service": "XIAO ESP32-S3 Autonomous Cloud Solver",
         "mock_mode": MOCK_MODE,
+        "ai_enabled": AI_ENABLED,
         "ocr_model": OCR_MODEL,
         "solver_model": SOLVER_MODEL,
         "has_api_key": bool(ANTHROPIC_API_KEY),
@@ -430,7 +508,41 @@ def health_check():
 def get_latest_solution():
     response.content_type = "application/json"
     response.set_header("Access-Control-Allow-Origin", "*")
-    return json.dumps(latest_solution)
+    sol = dict(latest_solution)
+    sol["ai_enabled"] = AI_ENABLED
+    return json.dumps(sol)
+
+@app.route("/api/toggle_ai", method=["GET", "POST", "OPTIONS"])
+def handle_toggle_ai():
+    global AI_ENABLED
+    if request.method == "OPTIONS":
+        response.set_header("Access-Control-Allow-Origin", "*")
+        response.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        response.set_header("Access-Control-Allow-Headers", "*")
+        return ""
+
+    val = request.query.get("enabled")
+    if val is not None:
+        AI_ENABLED = (val.lower() in ("true", "1", "yes"))
+    else:
+        AI_ENABLED = not AI_ENABLED
+
+    save_ai_mode(AI_ENABLED)
+    print(f"[AI TOGGLE] Stan AI zmieniony na: {'WŁĄCZONE (Claude Solver)' if AI_ENABLED else 'WYŁĄCZONE (Test Kadru)'}")
+    response.content_type = "application/json"
+    response.set_header("Access-Control-Allow-Origin", "*")
+    return json.dumps({"status": "ok", "ai_enabled": AI_ENABLED})
+
+@app.route("/api/ai_status", method=["GET", "OPTIONS"])
+def handle_ai_status():
+    if request.method == "OPTIONS":
+        response.set_header("Access-Control-Allow-Origin", "*")
+        response.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        response.set_header("Access-Control-Allow-Headers", "*")
+        return ""
+    response.content_type = "application/json"
+    response.set_header("Access-Control-Allow-Origin", "*")
+    return json.dumps({"ai_enabled": AI_ENABLED})
 
 latest_live_frame = None
 latest_live_timestamp = 0.0
@@ -571,12 +683,34 @@ def execute_solution_pipeline(frame_bytes):
     latest_solution["stage"] = 1
     latest_solution["stage_text"] = "1. Odbieranie klatki..."
     latest_solution["time"] = now_str
+    latest_solution["ai_enabled"] = AI_ENABLED
     
     with open(SOLUTION_FILE, "w", encoding="utf-8") as f:
         json.dump(latest_solution, f, ensure_ascii=False, indent=2)
 
-    full_img, crops = enhance_and_crop(frame_bytes)
+    full_img, crops, mean_brightness = enhance_and_crop(frame_bytes)
     reload_env()
+
+    # TRYB TESTOWY (AI WYŁĄCZONE): Wyświetlamy zdjęcie z kamery na zegarku bez zużywania API
+    if not AI_ENABLED:
+        print(f"[TEST KADRU] AI wyłączone przez użytkownika. Wyświetlanie zdjęcia (jasność: {mean_brightness:.1f}/255)...")
+        test_html = generate_photo_test_html(full_img, mean_brightness, now_str)
+        sol_hash = "photo_" + hashlib.md5((test_html + str(time.time())).encode("utf-8")).hexdigest()[:8]
+
+        latest_solution["status"] = "ready"
+        latest_solution["stage"] = 4
+        latest_solution["stage_text"] = "Zdjęcie odebrane (Test Mode)"
+        latest_solution["html"] = test_html
+        latest_solution["time"] = now_str
+        latest_solution["hash"] = sol_hash
+        latest_solution["guidance"] = ""
+        latest_solution["mock_mode"] = False
+        latest_solution["ai_enabled"] = False
+        with open(SOLUTION_FILE, "w", encoding="utf-8") as f:
+            json.dump(latest_solution, f, ensure_ascii=False, indent=2)
+
+        print(f"[TEST KADRU] Zdjęcie opublikowane na zegarku (hash: {sol_hash})!")
+        return sol_hash
 
     if MOCK_MODE:
         print("[MOCK] Tryb testowy: generowanie makiety bez użycia API (0 zł)...")
@@ -602,6 +736,7 @@ def execute_solution_pipeline(frame_bytes):
         latest_solution["time"] = now_str
         latest_solution["hash"] = sol_hash
         latest_solution["mock_mode"] = True
+        latest_solution["ai_enabled"] = True
     else:
         print(f"[LIVE AI] Etap 1: Claude Haiku weryfikuje kadr (wyrozumiale)...")
         latest_solution["stage"] = 2
@@ -610,11 +745,10 @@ def execute_solution_pipeline(frame_bytes):
             json.dump(latest_solution, f, ensure_ascii=False, indent=2)
 
         audit = run_stage_1_auditor(crops)
-        is_usable = audit.get("is_usable", True) if audit else True
         summary = audit.get("detected_summary", "") if audit else ""
         guidance = audit.get("camera_instruction", "") if audit else ""
 
-        print(f"[LIVE AI] Etap 2: Claude Opus 5.5 bezpośrednio odczytuje i rozwiązuje zadania ze zdjęć...")
+        print(f"[LIVE AI] Etap 2: Claude Opus 5.5 rozwiązuje zadania ze zdjęć (bezwarunkowo)...")
         latest_solution["stage"] = 3
         latest_solution["stage_text"] = "3. Claude Opus 5.5 rozwiązuje..."
         with open(SOLUTION_FILE, "w", encoding="utf-8") as f:
@@ -635,6 +769,7 @@ def execute_solution_pipeline(frame_bytes):
         latest_solution["hash"] = sol_hash
         latest_solution["guidance"] = guidance
         latest_solution["mock_mode"] = False
+        latest_solution["ai_enabled"] = True
 
     with open(SOLUTION_FILE, "w", encoding="utf-8") as f:
         json.dump(latest_solution, f, ensure_ascii=False, indent=2)
