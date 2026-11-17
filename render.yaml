@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: xiao-solver-backend
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 5000
+      - key: HOST
+        value: 0.0.0.0
+      - key: MOCK_MODE
+        value: "true"
+      - key: OCR_MODEL
+        value: "claude-haiku-5-5"
+      - key: SOLVER_MODEL
+        value: "claude-opus-5-5"
+      - key: ANTHROPIC_API_KEY
+        sync: false
