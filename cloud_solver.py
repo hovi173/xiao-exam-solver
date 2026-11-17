@@ -419,43 +419,44 @@ def enhance_and_crop(raw_jpeg_bytes):
     raw_path = os.path.join(FINAL_PHOTOS_DIR, "raw_capture.jpg")
     cv2.imwrite(raw_path, img, [cv2.IMWRITE_JPEG_QUALITY, 93])
 
-    # Zachowaj orientację naturalną (nie obracaj sztucznie jeśli szerokość >= wysokość)
+    # 1. OBROT O 90 STOPNI W LEWO (COUNTER-CLOCKWISE)
+    # Poziomy kadr z matrycy (w > h) obracamy do naturalnej pionowej orientacji kartki
     h_orig, w_orig = img.shape[:2]
-    if h_orig > w_orig:
-        result = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+    if w_orig > h_orig:
+        result = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
     else:
         result = img.copy()
 
-    # Zmierz jasność klatki
-    gray = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+    # 2. FILTRACJA ZIARNA / SZUMU SENSORA (Bilateral Filter zachowujący ostre krawędzie liter)
+    # Skutecznie usuwa ziarno na tle papieru bez rozmywania czcionki
+    denoised = cv2.bilateralFilter(result, d=9, sigmaColor=35, sigmaSpace=35)
+
+    # 3. KOREKCJA EKSPOZYCJI / GAMMY (Prawdziwe rozjaśnianie bez zniekształceń i bez graina)
+    gray = cv2.cvtColor(denoised, cv2.COLOR_BGR2GRAY)
     mean_val = float(np.mean(gray))
 
-    # Automatyczne rozjaśnienie (Gamma Correction dla ciemnych kadrów)
-    if mean_val < 140.0:
-        gamma = max(0.28, mean_val / 150.0)
-        inv_gamma = 1.0 / gamma
-        lut = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
-        result = cv2.LUT(result, lut)
+    # Wykładnik gamma < 1.0 (0.52 - 0.70) rozjaśnia niedoświetlone partie
+    gamma = 0.52 if mean_val < 100.0 else 0.70
+    lut = np.array([((i / 255.0) ** gamma) * 255 for i in range(256)]).astype("uint8")
+    brightened = cv2.LUT(denoised, lut)
 
-    # Balans bieli Gray-World
-    res_float = result.astype(np.float32)
-    b, g, r = cv2.split(res_float)
-    m_b, m_g, m_r = np.mean(b), np.mean(g), np.mean(r)
-    m_gray = (m_b + m_g + m_r) / 3.0
-    if m_b > 0 and m_g > 0 and m_r > 0:
-        b = np.clip(b * (m_gray / m_b), 0, 255)
-        g = np.clip(g * (m_gray / m_g), 0, 255)
-        r = np.clip(r * (m_gray / m_r), 0, 255)
-        result = cv2.merge([b, g, r]).astype(np.uint8)
-
-    # CLAHE na kanale L + Unsharp Mask (ostre litery i wzory)
-    lab = cv2.cvtColor(result, cv2.COLOR_BGR2LAB)
+    # 4. NORMALIZACJA KONTRASTU W PRZESTRZENI LAB (Zero grain, wysoki kontrast tekstu)
+    lab = cv2.cvtColor(brightened, cv2.COLOR_BGR2LAB)
     l, a, b_ch = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
-    l_clahe = clahe.apply(l)
-    l_blur = cv2.GaussianBlur(l_clahe, (0, 0), 2.0)
-    l_sharp = cv2.addWeighted(l_clahe, 1.35, l_blur, -0.35, 0)
-    final_full = cv2.cvtColor(cv2.merge([l_sharp, a, b_ch]), cv2.COLOR_LAB2BGR)
+
+    p_low, p_high = np.percentile(l, (2, 98))
+    if p_high > p_low + 10:
+        l_norm = np.clip((l.astype(np.float32) - p_low) / (p_high - p_low) * 230 + 15, 0, 255).astype(np.uint8)
+    else:
+        l_norm = l
+
+    # Łagodny CLAHE (clipLimit=1.2 zamiast 2.5) – zapobiega potęgowaniu szumu/ziarna
+    clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(8, 8))
+    l_enhanced = clahe.apply(l_norm)
+
+    # Dyskretne wygładzenie tła papieru (Bilateral)
+    l_clean = cv2.bilateralFilter(l_enhanced, d=5, sigmaColor=20, sigmaSpace=20)
+    final_full = cv2.cvtColor(cv2.merge([l_clean, a, b_ch]), cv2.COLOR_LAB2BGR)
 
     full_path = os.path.join(FINAL_PHOTOS_DIR, "ideal_capture.jpg")
     cv2.imwrite(full_path, final_full, [cv2.IMWRITE_JPEG_QUALITY, 93])
@@ -476,7 +477,7 @@ def enhance_and_crop(raw_jpeg_bytes):
 
     # Do analizy dołączamy także pełne zdjęcie
     crop_paths.insert(0, full_path)
-    return full_path, crop_paths, mean_val
+    return full_path, crop_paths, float(np.mean(cv2.cvtColor(final_full, cv2.COLOR_BGR2GRAY)))
 
 # =========================================================================
 # ENDPOINTY SERWERA
