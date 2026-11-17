@@ -92,47 +92,35 @@ burst_accumulator = {}
 app = Bottle()
 
 # =========================================================================
-# PROMPTY DLA ETAPU 1 (HAIKU 5.5) I ETAPU 2 (OPUS 5.5)
+# PROMPTY DLA ETAPU 1 (HAIKU 5.5 - BARDZO WYROZUMIAŁY AUDYTOR) I ETAPU 2 (OPUS 5.5)
 # =========================================================================
-AUDITOR_PROMPT = """Jesteś bezwzględnym, laboratoryjnym audytorem jakości materiałów egzaminacyjnych i transkrypcji OCR.
-Dostajesz 3 wycinki pionowe (góra, środek, dół) zdjęcia arkusza egzaminacyjnego.
-Twoim zadaniem jest:
-1. Zidentyfikować wszystkie zadania/pytania na arkuszu.
-2. Zdecydować bezlitośnie, które zadania są W 100% CZYTELNE (wszystkie dane, indeksy, wykresy i treść są ostre i nieucięte).
-3. Które zadania są UCIĘTE na krawędzi lub ROZMYTE (brak pewności co do liczb).
-4. Jeśli jakieś zadanie jest nieczytelne/ucięte, sformułować krótką wskazówkę po polsku, jak użytkownik ma przesunąć aparat (np. 'Skieruj aparat 5 cm niżej', 'Popraw ostrość').
+AUDITOR_PROMPT = """Jesteś asystentem weryfikującym czytelność zdjęć arkuszy zadań egzaminacyjnych.
+Twoim celem jest sprawdzić, czy na zdjęciu widać treść jakiegokolwiek pytania, zadania, schematu lub wzorów.
 
-ZWRÓĆ WYŁĄCZNIE CZYSTY KOD JSON w formacie:
+ZASADY:
+1. BĄDŹ MAKSYMALNIE WYROZUMIAŁY: Jeśli na zdjęciu widać chociaż fragment treści zadania, numer pytania, wzór matematyczny lub schemat (nawet jeśli kadr jest ciemny, lekko przekrzywiony lub nieidealny) -> ZAWSZE ustaw "is_usable": true!
+2. Przekazuj materiał do Claude Opus 5.5, który doskonale poradzi sobie z odczytaniem trudniejszego pisma i wzorów.
+3. Tylko w skrajnym przypadku, gdy na zdjęciu jest absolutnie 100% czarna plama, sufit, podłoga lub całkowite rozmycie uniemożliwiające odczytanie czegokolwiek -> ustaw "is_usable": false i podaj krótką wskazówkę w "camera_instruction".
+
+ZWRÓĆ WYŁĄCZNIE CZYSTY KOD JSON:
 {
-  "legible_tasks": [
-    {
-      "task_number": 1,
-      "title": "Krótki tytuł",
-      "content": "Pełna przepisana treść zadania z wszystkimi danymi liczbowymi i jednostkami"
-    }
-  ],
-  "unclear_tasks": [
-    {
-      "task_number": 2,
-      "reason": "Ucięty dolny wzór na marginesie"
-    }
-  ],
-  "camera_instruction": "Skieruj aparat 4 cm w dół"
+  "is_usable": true,
+  "detected_summary": "Krótkie podsumowanie co widać (np. Zadanie z obwodów)",
+  "camera_instruction": ""
 }"""
 
-OPUS_SOLVER_PROMPT = """Jesteś profesorem nauk technicznych, matematyki i teorii obwodów.
-Twoim celem jest rozwiązanie zweryfikowanych zadań egzaminacyjnych w formacie karty wzorcowych odpowiedzi.
+OPUS_SOLVER_PROMPT = """Jesteś profesorem nauk ścisłych, inżynierii i matematyki.
+Twoim celem jest dokładne odczytanie ze zdjęć wszystkich zadań i przedstawienie pełnego, wzorcowego rozwiązania.
 
-ZASADY FORMATOWANIA (BEZWZGLĘDNE):
-1. ZERO pogawędek, powitań, komentarzy w stylu 'Cześć' lub 'Oto rozwiązanie'.
-2. Zwróć czysty kod HTML do wstrzyknięcia na czarnym tle (#000000).
-3. Do wzorów matematycznych używaj WYŁĄCZNIE składni KaTeX:
-   - Wzory blokowe: $$ ... $$
-   - Wzory w tekście: $ ... $
-   - ZAKAZ pisania '130 / 20' - ZAWSZE pisz eleganckie ułamki: \\frac{130}{20}
-   - Wszelkie całki, granice, macierze, jednostki zapisuj formalnie: \\int_{0}^{t}, \\lim_{x \\to \\infty}, \\text{MPa}
-4. Jeśli zadanie wymaga schematu lub wykresu (np. obwód RLC, belka, wykres rozciągania), ZAWSZE wygeneruj profesjonalny, estetyczny wektorowy schemat inline <svg ...> z ciemnym tłem, wyraźnymi liniami (#38bdf8, #10b981) i czytelnymi podpisami elementów.
-5. Każde zadanie zamknij w tagu: <article class="full-task"> ... </article> z nagłówkiem, danymi, krokami obliczeniowymi, schematem i ramką wyniku końcowego.
+ZASADY:
+1. ZERO powitań, komentarzy typu 'Oto rozwiązanie'.
+2. Zwróć czysty kod HTML przygotowany pod czarne tło (#000000).
+3. Do wszelkich wzorów, liczb i jednostek używaj WYŁĄCZNIE KaTeX:
+   - Blokowe: $$ ... $$
+   - W tekście: $ ... $
+   - Zawsze eleganckie ułamki: \\frac{a}{b}, jednostki: \\text{V}, \\text{A}, \\text{s}.
+4. Jeśli zadanie wymaga schematu, ZAWSZE wygeneruj profesjonalny schemat inline <svg ...> z ciemnym tłem.
+5. Zamknij zadania w tagu <article class="full-task"> z ramką wyniku końcowego.
 """
 
 def run_stage_1_auditor(crop_paths):
@@ -149,15 +137,15 @@ def run_stage_1_auditor(crop_paths):
                     "type": "image",
                     "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}
                 })
-    blocks.append({"type": "text", "text": "Przeanalizuj wycinki i zwróć czysty JSON z audytem zadań."})
+    blocks.append({"type": "text", "text": "Oceń wyrozumiale czytelność zadań i zwróć kod JSON."})
     headers = {
         "x-api-key": ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json"
     }
     payload = {
-        "model": OCR_MODEL,
-        "max_tokens": 4096,
+        "model": "claude-haiku-5-5",
+        "max_tokens": 1024,
         "system": AUDITOR_PROMPT,
         "messages": [{"role": "user", "content": blocks}]
     }
@@ -174,30 +162,39 @@ def run_stage_1_auditor(crop_paths):
                 m = re.search(r'(\{.*\})', clean, re.DOTALL)
                 if m:
                     return json.loads(m.group(1))
-                raise
         else:
             print(f"[AUDITOR] Błąd API {r.status_code}: {r.text}")
     except Exception as e:
         print(f"[AUDITOR] Błąd: {e}")
-    return None
+    return {"is_usable": True, "detected_summary": "Zadanie egzaminacyjne"}
 
-def run_stage_2_opus(legible_tasks):
+def run_stage_2_opus(crop_paths, summary=""):
     reload_env()
-    if not ANTHROPIC_API_KEY or not legible_tasks:
+    if not ANTHROPIC_API_KEY:
         return ""
     headers = {
         "x-api-key": ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json"
     }
-    prompt_tasks = json.dumps(legible_tasks, ensure_ascii=False, indent=2)
+    blocks = []
+    for p in crop_paths:
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("utf-8")
+                blocks.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}
+                })
+    blocks.append({
+        "type": "text",
+        "text": f"Oto zdjęcia arkusza egzaminacyjnego ({summary}). Odczytaj dokładnie wszystkie pytania i podaj pełne, profesjonalne rozwiązania krok po kroku z KaTeX i SVG:"
+    })
     payload = {
-        "model": SOLVER_MODEL,
+        "model": "claude-opus-5-5",
         "max_tokens": 8192,
         "system": OPUS_SOLVER_PROMPT,
-        "messages": [
-            {"role": "user", "content": f"Oto czytelne zadania z arkusza. Rozwiąż je krok po kroku z KaTeX i SVG:\n\n{prompt_tasks}"}
-        ]
+        "messages": [{"role": "user", "content": blocks}]
     }
     try:
         r = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload, timeout=60)
@@ -347,11 +344,25 @@ def enhance_and_crop(raw_jpeg_bytes):
     if img is None:
         return None, []
 
-    rotated = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    # Zachowaj orientację naturalną (nie obracaj sztucznie jeśli szerokość >= wysokość)
+    h_orig, w_orig = img.shape[:2]
+    if h_orig > w_orig:
+        result = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+    else:
+        result = img.copy()
+
+    # Automatyczne rozjaśnienie (Gamma Correction dla ciemnych kadrów)
+    gray = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+    mean_val = float(np.mean(gray))
+    if mean_val < 130.0:
+        gamma = max(0.35, mean_val / 140.0)
+        inv_gamma = 1.0 / gamma
+        lut = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+        result = cv2.LUT(result, lut)
 
     # Balans bieli Gray-World
-    result = rotated.copy().astype(np.float32)
-    b, g, r = cv2.split(result)
+    res_float = result.astype(np.float32)
+    b, g, r = cv2.split(res_float)
     m_b, m_g, m_r = np.mean(b), np.mean(g), np.mean(r)
     m_gray = (m_b + m_g + m_r) / 3.0
     if m_b > 0 and m_g > 0 and m_r > 0:
@@ -359,13 +370,11 @@ def enhance_and_crop(raw_jpeg_bytes):
         g = np.clip(g * (m_gray / m_g), 0, 255)
         r = np.clip(r * (m_gray / m_r), 0, 255)
         result = cv2.merge([b, g, r]).astype(np.uint8)
-    else:
-        result = rotated
 
     # CLAHE na kanale L + Unsharp Mask (ostre litery i wzory)
     lab = cv2.cvtColor(result, cv2.COLOR_BGR2LAB)
     l, a, b_ch = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     l_clahe = clahe.apply(l)
     l_blur = cv2.GaussianBlur(l_clahe, (0, 0), 2.0)
     l_sharp = cv2.addWeighted(l_clahe, 1.35, l_blur, -0.35, 0)
@@ -376,9 +385,9 @@ def enhance_and_crop(raw_jpeg_bytes):
 
     h, w = final_full.shape[:2]
     slices = [
-        ("section_1_top.jpg", 0.0, 0.38),
-        ("section_2_middle.jpg", 0.32, 0.70),
-        ("section_3_bottom.jpg", 0.64, 1.00)
+        ("section_1_top.jpg", 0.0, 0.40),
+        ("section_2_middle.jpg", 0.30, 0.70),
+        ("section_3_bottom.jpg", 0.60, 1.00)
     ]
     crop_paths = []
     for name, y1_pct, y2_pct in slices:
@@ -388,6 +397,8 @@ def enhance_and_crop(raw_jpeg_bytes):
         cv2.imwrite(c_path, crop, [cv2.IMWRITE_JPEG_QUALITY, 93])
         crop_paths.append(c_path)
 
+    # Do analizy dołączamy także pełne zdjęcie
+    crop_paths.insert(0, full_path)
     return full_path, crop_paths
 
 # =========================================================================
@@ -592,26 +603,28 @@ def execute_solution_pipeline(frame_bytes):
         latest_solution["hash"] = sol_hash
         latest_solution["mock_mode"] = True
     else:
-        print(f"[LIVE AI] Etap 1: Claude Haiku 5.5 audytuje jakość i transkrybuje zadania...")
+        print(f"[LIVE AI] Etap 1: Claude Haiku weryfikuje kadr (wyrozumiale)...")
         latest_solution["stage"] = 2
-        latest_solution["stage_text"] = "2. Claude Haiku analizuje..."
+        latest_solution["stage_text"] = "2. Claude Haiku analizuje kadr..."
         with open(SOLUTION_FILE, "w", encoding="utf-8") as f:
             json.dump(latest_solution, f, ensure_ascii=False, indent=2)
 
         audit = run_stage_1_auditor(crops)
-        legible = audit.get("legible_tasks", []) if audit else []
-        unclear = audit.get("unclear_tasks", []) if audit else []
+        is_usable = audit.get("is_usable", True) if audit else True
+        summary = audit.get("detected_summary", "") if audit else ""
         guidance = audit.get("camera_instruction", "") if audit else ""
 
-        print(f"[LIVE AI] Etap 2: Claude Opus 5.5 rozwiązuje {len(legible)} czytelnych zadań...")
+        print(f"[LIVE AI] Etap 2: Claude Opus 5.5 bezpośrednio odczytuje i rozwiązuje zadania ze zdjęć...")
         latest_solution["stage"] = 3
-        latest_solution["stage_text"] = "3. Claude Opus rozwiązuje..."
+        latest_solution["stage_text"] = "3. Claude Opus 5.5 rozwiązuje..."
         with open(SOLUTION_FILE, "w", encoding="utf-8") as f:
             json.dump(latest_solution, f, ensure_ascii=False, indent=2)
 
-        solved_html = run_stage_2_opus(legible) if legible else "<div style='color:#ef4444; padding: 20px;'>Nie wykryto czytelnych zadań na zdjęciu. Popraw kadr według wskazówki.</div>"
-        banner_html = build_guidance_banner(unclear, guidance)
-        final_html = banner_html + solved_html
+        solved_html = run_stage_2_opus(crops, summary)
+        if not solved_html:
+            solved_html = f"<div style='color:#f87171; padding: 20px;'>Wskazówka: {guidance or 'Zrób zdjęcie bliżej tekstu i upewnij się, że aparat jest skierowany na zadanie.'}</div>"
+
+        final_html = solved_html
         sol_hash = "sol_" + hashlib.md5((final_html + str(time.time())).encode("utf-8")).hexdigest()[:8]
 
         latest_solution["status"] = "ready"
