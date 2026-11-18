@@ -879,9 +879,9 @@
 
     <!-- PRZEŁĄCZNIK TRYBU AI / TESTU ZDJĘĆ -->
     <div style="text-align: center; margin: 4px auto 12px auto;">
-      <button id="btnAiToggle" class="btn-ai-toggle" onclick="toggleAiMode()">
+      <button id="btnAiToggle" class="btn-ai-toggle ai-active" onclick="toggleAiMode()">
         <span id="aiToggleDot" class="ai-status-dot"></span>
-        <span id="aiToggleText">AI: WYŁĄCZONE (TEST KADRU)</span>
+        <span id="aiToggleText">AI: WŁĄCZONE (Haiku 5.5 + Opus 5.5)</span>
       </button>
     </div>
 
@@ -1361,7 +1361,7 @@
       if (btn && txt) {
         if (enabled) {
           btn.classList.add('ai-active');
-          txt.innerText = 'AI: WŁĄCZONE (OPUS 5.5)';
+          txt.innerText = 'AI: WŁĄCZONE (Haiku 5.5 + Opus 5.5)';
         } else {
           btn.classList.remove('ai-active');
           txt.innerText = 'AI: WYŁĄCZONE (TEST KADRU)';
