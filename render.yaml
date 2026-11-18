@@ -20,6 +20,6 @@ services:
       - key: SOLVER_MODEL
         value: "claude-opus-5-5"
       - key: ROTATE_180
-        value: "true"
+        value: "false"
       - key: ANTHROPIC_API_KEY
         sync: false

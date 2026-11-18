@@ -409,7 +409,7 @@ def select_sharpest_frame(frames_bytes):
                 best_frame = b
     return best_frame
 
-ROTATE_180 = os.environ.get("ROTATE_180", "true").lower() in ("true", "1", "yes")
+ROTATE_180 = os.environ.get("ROTATE_180", "false").lower() in ("true", "1", "yes")
 
 def apply_camera_rotation(img):
     if img is None:
