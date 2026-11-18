@@ -19,5 +19,7 @@ services:
         value: "claude-haiku-5-5"
       - key: SOLVER_MODEL
         value: "claude-opus-5-5"
+      - key: ROTATE_180
+        value: "true"
       - key: ANTHROPIC_API_KEY
         sync: false
