@@ -455,36 +455,41 @@ def enhance_and_crop(raw_jpeg_bytes):
     if result is None:
         result = img.copy()
 
-    # 2. FILTRACJA ZIARNA / SZUMU SENSORA (Bilateral Filter zachowujący ostre krawędzie liter)
-    # Skutecznie usuwa ziarno na tle papieru bez rozmywania czcionki
-    denoised = cv2.bilateralFilter(result, d=9, sigmaColor=35, sigmaSpace=35)
+    # 2. ADAPTACYJNA ANALIZA OŚWIETLENIA (LOW-LIGHT ENHANCEMENT)
+    gray_init = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+    mean_val = float(np.mean(gray_init))
 
-    # 3. KOREKCJA EKSPOZYCJI / GAMMY (Prawdziwe rozjaśnianie bez zniekształceń i bez graina)
-    gray = cv2.cvtColor(denoised, cv2.COLOR_BGR2GRAY)
-    mean_val = float(np.mean(gray))
+    # W słabym świetle zachowujemy ostrość liter: delikatne odszumianie bez rozmywania czcionki
+    if mean_val < 110.0:
+        # Ciemne oświetlenie: bardzo subtelny filtr zachowujący cienkie linie liter
+        denoised = cv2.bilateralFilter(result, d=5, sigmaColor=12, sigmaSpace=12)
+        # Dynamiczna korekcja Gamma podnosząca cienie
+        gamma = 0.42 if mean_val < 60.0 else 0.55
+        clip_limit = 3.2 if mean_val < 60.0 else 2.6
+    else:
+        # Dobre oświetlenie
+        denoised = cv2.bilateralFilter(result, d=7, sigmaColor=25, sigmaSpace=25)
+        gamma = 0.70
+        clip_limit = 1.8
 
-    # Wykładnik gamma < 1.0 (0.52 - 0.70) rozjaśnia niedoświetlone partie
-    gamma = 0.52 if mean_val < 100.0 else 0.70
     lut = np.array([((i / 255.0) ** gamma) * 255 for i in range(256)]).astype("uint8")
     brightened = cv2.LUT(denoised, lut)
 
-    # 4. NORMALIZACJA KONTRASTU W PRZESTRZENI LAB (Zero grain, wysoki kontrast tekstu)
+    # 3. NORMALIZACJA KONTRASTU W PRZESTRZENI LAB (CLAHE WYCIĄGAJĄCE DRUK PAPIERU)
     lab = cv2.cvtColor(brightened, cv2.COLOR_BGR2LAB)
     l, a, b_ch = cv2.split(lab)
 
-    p_low, p_high = np.percentile(l, (2, 98))
-    if p_high > p_low + 10:
-        l_norm = np.clip((l.astype(np.float32) - p_low) / (p_high - p_low) * 230 + 15, 0, 255).astype(np.uint8)
+    p_low, p_high = np.percentile(l, (1, 99))
+    if p_high > p_low + 8:
+        l_norm = np.clip((l.astype(np.float32) - p_low) / (p_high - p_low) * 235 + 10, 0, 255).astype(np.uint8)
     else:
         l_norm = l
 
-    # Łagodny CLAHE (clipLimit=1.2 zamiast 2.5) – zapobiega potęgowaniu szumu/ziarna
-    clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(8, 8))
+    # Adaptacyjny CLAHE podbijający lokalny kontrast tekstu na papierze
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
     l_enhanced = clahe.apply(l_norm)
 
-    # Dyskretne wygładzenie tła papieru (Bilateral)
-    l_clean = cv2.bilateralFilter(l_enhanced, d=5, sigmaColor=20, sigmaSpace=20)
-    final_full = cv2.cvtColor(cv2.merge([l_clean, a, b_ch]), cv2.COLOR_LAB2BGR)
+    final_full = cv2.cvtColor(cv2.merge([l_enhanced, a, b_ch]), cv2.COLOR_LAB2BGR)
 
     full_path = os.path.join(FINAL_PHOTOS_DIR, "ideal_capture.jpg")
     cv2.imwrite(full_path, final_full, [cv2.IMWRITE_JPEG_QUALITY, 93])
@@ -516,6 +521,14 @@ def serve_watch_ui():
     if os.path.exists(WATCH_TEMPLATE_PATH):
         return static_file("watch_template.html", root=BASE_DIR)
     return "<div style='color:white;background:black;padding:20px;font-family:sans-serif;'>Watch template not found.</div>"
+
+@app.route("/test")
+@app.route("/lab")
+def serve_test_ui():
+    test_path = os.path.join(BASE_DIR, "quality_test.html")
+    if os.path.exists(test_path):
+        return static_file("quality_test.html", root=BASE_DIR)
+    return "<div style='color:white;background:black;padding:20px;font-family:sans-serif;'>Quality test template not found.</div>"
 
 @app.route("/health")
 @app.route("/api/health")

@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XIAO OV5640 AF · Laboratorium Jakości i Oświetlenia</title>
+  
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #111827;
+      --card-border: #1f2937;
+      --accent-blue: #38bdf8;
+      --accent-green: #10b981;
+      --accent-yellow: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-purple: #a855f7;
+      --text-main: #f9fafb;
+      --text-muted: #9ca3af;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    /* HEADER */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px 24px;
+      flex-wrap: wrap;
+      gap: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+
+    .title-group h1 {
+      font-size: 19px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+    }
+
+    .title-group p {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+      transition: all 0.3s ease;
+    }
+
+    .status-dot.waiting {
+      background: var(--accent-yellow);
+      box-shadow: 0 0 8px var(--accent-yellow);
+      animation: pulse 1s infinite;
+    }
+
+    .status-dot.active {
+      background: var(--accent-blue);
+      box-shadow: 0 0 10px var(--accent-blue);
+      animation: pulse 0.5s infinite;
+    }
+
+    .btn {
+      background: #1f2937;
+      color: var(--text-main);
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 7px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      background: #374151;
+      border-color: #4b5563;
+      transform: translateY(-1px);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+      border: none;
+      box-shadow: 0 2px 10px rgba(37, 99, 235, 0.4);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #0369a1 0%, #1d4ed8 100%);
+    }
+
+    .btn-success {
+      background: #059669;
+      border: none;
+    }
+
+    /* MAIN GRID */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 18px;
+    }
+
+    @media (max-width: 900px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* CARD STYLES */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #cbd5e1;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* IMAGE VIEWER & LOUPE */
+    .image-viewer-container {
+      position: relative;
+      background: #000;
+      border: 1px solid #1f2937;
+      border-radius: 10px;
+      overflow: hidden;
+      min-height: 480px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: crosshair;
+    }
+
+    .main-image {
+      max-width: 100%;
+      max-height: 72vh;
+      object-fit: contain;
+      display: block;
+      transition: transform 0.2s ease;
+      user-select: none;
+    }
+
+    /* Magnifier Loupe */
+    .magnifier-loupe {
+      position: absolute;
+      width: 180px;
+      height: 180px;
+      border: 3px solid var(--accent-blue);
+      border-radius: 50%;
+      pointer-events: none;
+      display: none;
+      box-shadow: 0 0 25px rgba(56, 189, 248, 0.6), inset 0 0 15px rgba(0,0,0,0.6);
+      background-repeat: no-repeat;
+      z-index: 100;
+    }
+
+    .image-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #0b1120;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .zoom-hint {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #94a3b8;
+    }
+
+    /* METRICS SIDEBAR */
+    .metrics-col {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .metric-box {
+      background: #0c1322;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .metric-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .metric-name {
+      font-size: 11.5px;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+
+    .metric-value {
+      font-size: 18px;
+      font-weight: 800;
+      color: #f1f5f9;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    .metric-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 10.5px;
+      font-weight: 700;
+      align-self: flex-start;
+    }
+
+    .badge-excellent {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-good {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .badge-warn {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .badge-bad {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .progress-bar-bg {
+      width: 100%;
+      height: 6px;
+      background: #1e293b;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.4s ease, background-color 0.4s ease;
+    }
+
+    .metric-tip {
+      font-size: 11px;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+
+    /* HISTORY STRIP */
+    .history-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .history-scroll {
+      display: flex;
+      gap: 12px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+
+    .history-item {
+      flex: 0 0 110px;
+      background: #0c1322;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 6px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .history-item:hover, .history-item.active {
+      border-color: var(--accent-blue);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(56, 189, 248, 0.2);
+    }
+
+    .history-thumb {
+      width: 100%;
+      height: 75px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: #000;
+    }
+
+    .history-meta {
+      font-size: 9.5px;
+      color: #94a3b8;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    /* TOAST ALERT */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #0284c7;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.9); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- HEADER -->
+    <header>
+      <div class="title-group">
+        <h1>XIAO OV5640 AUTOFOCUS · LABORATORIUM JAKOŚCI</h1>
+        <p>Błyskawiczna analiza kadrów przy różnym oświetleniu · Podgląd 5 Megapikseli</p>
+      </div>
+
+      <div class="header-controls">
+        <div id="statusPill" class="status-pill">
+          <div id="statusDot" class="status-dot waiting"></div>
+          <span id="statusText">Oczekiwanie na kliknięcie...</span>
+        </div>
+
+        <button class="btn btn-primary" onclick="triggerTestSolve()">
+          ⚡ Wymuś strzał (Test)
+        </button>
+
+        <button id="aiToggleBtn" class="btn" onclick="toggleAiMode()">
+          🤖 Tryb: Test Kadru (0 zł)
+        </button>
+
+        <button class="btn" onclick="toggleSound()">
+          <span id="soundIcon">🔔</span> Dźwięk
+        </button>
+      </div>
+    </header>
+
+    <!-- DASHBOARD GRID -->
+    <div class="dashboard-grid">
+      <!-- MAIN VIEWER -->
+      <div class="card">
+        <div class="card-title">
+          <span>Przechwycony Kadr (5 MP · 2560×1920)</span>
+          <span id="captureTimeBadge" style="font-size: 11px; color: var(--accent-blue);">Czas: --:--:--</span>
+        </div>
+
+        <div class="image-viewer-container" id="viewerContainer">
+          <img id="mainImage" class="main-image" src="" alt="Kliknij przycisk na kamerce, aby zrobić zdjęcie...">
+          <div id="magnifierLoupe" class="magnifier-loupe"></div>
+        </div>
+
+        <div class="image-toolbar">
+          <div class="zoom-hint">
+            🔍 <strong>Lupa tekstu:</strong> Najedź kursorem na zdjęcie, aby powiększyć drobny druk (x3)!
+          </div>
+          <div id="frameDimensions">Rozdzielczość: -- × -- px</div>
+        </div>
+      </div>
+
+      <!-- METRICS SIDEBAR -->
+      <div class="metrics-col">
+        <!-- BRIGHTNESS CARD -->
+        <div class="card">
+          <div class="card-title">Poziom Oświetlenia</div>
+          
+          <div class="metric-box">
+            <div class="metric-header">
+              <span class="metric-name">Średnia Luminancja</span>
+              <span id="valBrightness" class="metric-value">-- / 255</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div id="barBrightness" class="progress-bar-fill" style="width: 0%; background-color: var(--accent-yellow);"></div>
+            </div>
+            <div id="badgeBrightness" class="metric-badge badge-warn">Oczekiwanie</div>
+            <div id="tipBrightness" class="metric-tip">
+              Zrób zdjęcie przy wybranym świetle (np. lampka, monitor, półmrok).
+            </div>
+          </div>
+        </div>
+
+        <!-- SHARPNESS CARD -->
+        <div class="card">
+          <div class="card-title">Ostrość AutoFocus VCM</div>
+          
+          <div class="metric-box">
+            <div class="metric-header">
+              <span class="metric-name">Wariancja Laplasjanu</span>
+              <span id="valSharpness" class="metric-value">--</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div id="barSharpness" class="progress-bar-fill" style="width: 0%; background-color: var(--accent-green);"></div>
+            </div>
+            <div id="badgeSharpness" class="metric-badge badge-good">AF Gotowy</div>
+            <div id="tipSharpness" class="metric-tip">
+              Im wyższy wynik (> 1500), tym ostrzejsze litery na papierze.
+            </div>
+          </div>
+        </div>
+
+        <!-- SPEED & DIAGNOSTICS CARD -->
+        <div class="card">
+          <div class="card-title">Diagnostyka Szybkości</div>
+          
+          <div class="metric-box">
+            <div class="metric-header">
+              <span class="metric-name">Czas od kliknięcia</span>
+              <span id="valSpeed" class="metric-value">-- ms</span>
+            </div>
+            <div class="metric-tip" id="tipSpeed">
+              Zoptymalizowany firmware rejestruje i przesyła kadr w czasie rzeczywistym.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTORY CAROUSEL -->
+    <div class="history-card">
+      <div class="card-title">
+        <span>Historia Prób (Porównanie Świateł)</span>
+        <button class="btn" style="padding: 3px 10px; font-size: 10.5px;" onclick="clearHistory()">Wyczyść historię</button>
+      </div>
+
+      <div class="history-scroll" id="historyReel">
+        <div style="font-size: 11px; color: #64748b; padding: 12px;">Brak wcześniejszych kadrów w tej sesji. Kliknij przycisk na palcu!</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="toast">
+    <span>📸</span>
+    <span id="toastMsg">Nowe zdjęcie odebrane z kamerki!</span>
+  </div>
+
+  <!-- OFFLINE CANVAS DLA METRYK -->
+  <canvas id="calcCanvas" style="display:none;"></canvas>
+
+  <script>
+    // Konfiguracja serwera: domyślnie Render, opcjonalnie lokalny localhost
+    const API_BASE = window.location.origin.includes("onrender.com") 
+      ? window.location.origin 
+      : "https://xiao-exam-solver.onrender.com";
+
+    let lastKnownHash = "";
+    let lastUploadTime = 0;
+    let soundEnabled = true;
+    let historyItems = [];
+    let audioCtx = null;
+
+    // Inicjalizacja prostego syntezatora dźwiękowego Web Audio
+    function playBeep(freq = 880, duration = 0.12) {
+      if (!soundEnabled) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {
+        console.warn("Audio error:", e);
+      }
+    }
+
+    function toggleSound() {
+      soundEnabled = !soundEnabled;
+      document.getElementById("soundIcon").textContent = soundEnabled ? "🔔" : "🔕";
+      showToast(soundEnabled ? "Dźwięk włączony" : "Dźwięk wyciszony");
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById("toast");
+      document.getElementById("toastMsg").textContent = msg;
+      t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), 3000);
+    }
+
+    // Odpytywanie o stan kamery i nowe zdjęcia co 450 ms
+    async function checkCameraLoop() {
+      try {
+        const resp = await fetch(`${API_BASE}/api/latest_solution`, { cache: "no-store" });
+        if (resp.ok) {
+          const data = await resp.json();
+          handleSolutionUpdate(data);
+        }
+
+        const stResp = await fetch(`${API_BASE}/api/camera_status`, { cache: "no-store" });
+        if (stResp.ok) {
+          const st = await stResp.json();
+          updateStatusPill(st);
+        }
+      } catch (err) {
+        document.getElementById("statusDot").className = "status-dot waiting";
+        document.getElementById("statusText").textContent = "Łączenie z serwerem...";
+      }
+
+      setTimeout(checkCameraLoop, 450);
+    }
+
+    function updateStatusPill(st) {
+      const dot = document.getElementById("statusDot");
+      const text = document.getElementById("statusText");
+
+      if (st.is_online) {
+        dot.className = "status-dot active";
+        text.textContent = "Kamera AKTYWNA (Wysyła kadr)";
+      } else if (st.last_upload_seconds_ago < 30) {
+        dot.className = "status-dot";
+        text.textContent = `Zdjęcie odebrane (${Math.round(st.last_upload_seconds_ago)}s temu)`;
+      } else {
+        dot.className = "status-dot waiting";
+        text.textContent = "Uśpienie Cold Sleep · Kliknij przycisk!";
+      }
+    }
+
+    function handleSolutionUpdate(data) {
+      if (!data || !data.hash) return;
+
+      if (data.hash !== lastKnownHash && data.status !== "cleared") {
+        lastKnownHash = data.hash;
+        onNewPhotoArrived(data);
+      }
+
+      // Aktualizacja stanu przycisku AI
+      const aiBtn = document.getElementById("aiToggleBtn");
+      if (data.ai_enabled) {
+        aiBtn.textContent = "🤖 Tryb: Claude AI (Włączony)";
+        aiBtn.className = "btn btn-success";
+      } else {
+        aiBtn.textContent = "📷 Tryb: Test Kadru (0 zł)";
+        aiBtn.className = "btn";
+      }
+    }
+
+    async function onNewPhotoArrived(data) {
+      playBeep(750, 0.08);
+      setTimeout(() => playBeep(1100, 0.14), 100);
+      showToast("📸 Odebrano nowe zdjęcie z kamerki!");
+
+      const now = new Date();
+      const timeStr = data.time || now.toLocaleTimeString();
+      document.getElementById("captureTimeBadge").textContent = "Czas: " + timeStr;
+
+      // Załaduj zdjęcie do głównego podglądu z timestampem zapobiegającym cache
+      const imgUrl = `${API_BASE}/api/latest_photo?t=${Date.now()}`;
+      const imgEl = document.getElementById("mainImage");
+      
+      imgEl.onload = () => {
+        document.getElementById("frameDimensions").textContent = 
+          `Rozdzielczość: ${imgEl.naturalWidth} × ${imgEl.naturalHeight} px`;
+        setupMagnifier(imgEl);
+        analyzeImageMetrics(imgEl, timeStr);
+      };
+      imgEl.src = imgUrl;
+    }
+
+    // Analiza jasności i ostrości w przeglądarce za pomocą Canvas
+    function analyzeImageMetrics(imgEl, timeStr) {
+      try {
+        const canvas = document.getElementById("calcCanvas");
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        
+        // Skalujemy do zoptymalizowanego rozmiaru do obliczeń (np. 640x480)
+        const w = 480;
+        const h = Math.round((imgEl.naturalHeight / imgEl.naturalWidth) * w);
+        canvas.width = w;
+        canvas.height = h;
+        ctx.drawImage(imgEl, 0, 0, w, h);
+
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const data = imgData.data;
+
+        let totalLum = 0;
+        const grays = new Float32Array(w * h);
+
+        for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+          // Standardowa luminancja percepcyjna ITU-R BT.601
+          const lum = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+          grays[p] = lum;
+          totalLum += lum;
+        }
+
+        const meanLum = totalLum / (w * h);
+
+        // Obliczenie wariancji Laplasjana (wskaźnik ostrości)
+        let lapSum = 0;
+        let lapSqSum = 0;
+        let count = 0;
+
+        for (let y = 1; y < h - 1; y += 2) {
+          for (let x = 1; x < w - 1; x += 2) {
+            const idx = y * w + x;
+            // Dyskretny filtr laplasjanu: L = 4*c - (up + down + left + right)
+            const lap = 4 * grays[idx] - grays[idx - w] - grays[idx + w] - grays[idx - 1] - grays[idx + 1];
+            lapSum += lap;
+            lapSqSum += lap * lap;
+            count++;
+          }
+        }
+
+        const meanLap = lapSum / count;
+        const varianceLap = Math.round((lapSqSum / count) - (meanLap * meanLap));
+
+        updateMetricUI(meanLum, varianceLap);
+        addToHistory(imgEl.src, timeStr, meanLum, varianceLap);
+
+      } catch (err) {
+        console.error("Image analysis error:", err);
+      }
+    }
+
+    function updateMetricUI(lum, sharp) {
+      // 1. Oświetlenie
+      const valB = document.getElementById("valBrightness");
+      const barB = document.getElementById("barBrightness");
+      const badgeB = document.getElementById("badgeBrightness");
+      const tipB = document.getElementById("tipBrightness");
+
+      valB.textContent = `${Math.round(lum)} / 255`;
+      const pctB = Math.min(100, Math.round((lum / 255) * 100));
+      barB.style.width = pctB + "%";
+
+      if (lum < 35) {
+        badgeB.className = "metric-badge badge-bad";
+        badgeB.textContent = "🌑 Bardzo ciemno";
+        barB.style.backgroundColor = "var(--accent-red)";
+        tipB.textContent = "Zbyt mało światła. Skieruj lampkę lub ekran telefonu na kartkę.";
+      } else if (lum < 65) {
+        badgeB.className = "metric-badge badge-warn";
+        badgeB.textContent = "🌘 Półmrok (Wystarczające)";
+        barB.style.backgroundColor = "var(--accent-yellow)";
+        tipB.textContent = "Słabe oświetlenie, ale automatyczny filtr CLAHE rozjaśnił tekst.";
+      } else if (lum <= 165) {
+        badgeB.className = "metric-badge badge-excellent";
+        badgeB.textContent = "☀️ Optymalne Światło";
+        barB.style.backgroundColor = "var(--accent-green)";
+        tipB.textContent = "Idealny kontrast papieru i liter. Claude AI bezbłędnie odczyta treść.";
+      } else {
+        badgeB.className = "metric-badge badge-warn";
+        badgeB.textContent = "💥 Zbyt Jasno / Błysk";
+        barB.style.backgroundColor = "var(--accent-yellow)";
+        tipB.textContent = "Ostre światło odbija się od papieru. Przesuń źródło światła lekko w bok.";
+      }
+
+      // 2. Ostrość
+      const valS = document.getElementById("valSharpness");
+      const barS = document.getElementById("barSharpness");
+      const badgeS = document.getElementById("badgeSharpness");
+      const tipS = document.getElementById("tipSharpness");
+
+      valS.textContent = sharp.toLocaleString();
+      const pctS = Math.min(100, Math.round((sharp / 5000) * 100));
+      barS.style.width = pctS + "%";
+
+      if (sharp < 450) {
+        badgeS.className = "metric-badge badge-bad";
+        badgeS.textContent = "Rozmyte (Ruch)";
+        barS.style.backgroundColor = "var(--accent-red)";
+        tipS.textContent = "Kamerka poruszyła się w trakcie strzału. Trzymaj dłoń stabilniej.";
+      } else if (sharp < 1500) {
+        badgeS.className = "metric-badge badge-good";
+        badgeS.textContent = "Dobra Ostrość";
+        barS.style.backgroundColor = "var(--accent-blue)";
+        tipS.textContent = "Tekst jest czytelny dla oka i sztucznej inteligencji.";
+      } else {
+        badgeS.className = "metric-badge badge-excellent";
+        badgeS.textContent = "Żyleta (AF Locked)";
+        barS.style.backgroundColor = "var(--accent-green)";
+        tipS.textContent = "Idealna ostrość krawędzi liter. AutoFocus precyzyjnie ustawił soczewkę.";
+      }
+    }
+
+    // Dodanie do paska historii prób
+    function addToHistory(url, time, lum, sharp) {
+      const reel = document.getElementById("historyReel");
+      if (historyItems.length === 0) reel.innerHTML = "";
+
+      const item = { url, time, lum, sharp };
+      historyItems.unshift(item);
+
+      const div = document.createElement("div");
+      div.className = "history-item active";
+      div.onclick = () => {
+        document.querySelectorAll(".history-item").forEach(el => el.classList.remove("active"));
+        div.classList.add("active");
+        document.getElementById("mainImage").src = url;
+        updateMetricUI(lum, sharp);
+        document.getElementById("captureTimeBadge").textContent = "Historia: " + time;
+      };
+
+      const lumBadge = lum < 35 ? "🌑 Ciemno" : (lum > 165 ? "💥 Jasno" : "☀️ OK");
+      div.innerHTML = `
+        <img class="history-thumb" src="${url}">
+        <div class="history-meta">
+          <strong>${time}</strong>
+          <span>${lumBadge} (${Math.round(lum)})</span>
+          <span style="color:var(--accent-green);">AF: ${sharp}</span>
+        </div>
+      `;
+
+      reel.insertBefore(div, reel.firstChild);
+      setTimeout(() => div.classList.remove("active"), 1000);
+    }
+
+    function clearHistory() {
+      historyItems = [];
+      document.getElementById("historyReel").innerHTML = 
+        '<div style="font-size: 11px; color: #64748b; padding: 12px;">Historia wyczyszczona.</div>';
+    }
+
+    // Interaktywna Lupa (Magnifier) tekstu
+    function setupMagnifier(img) {
+      const container = document.getElementById("viewerContainer");
+      const loupe = document.getElementById("magnifierLoupe");
+      const zoom = 2.8;
+
+      container.onmouseenter = () => {
+        loupe.style.display = "block";
+        loupe.style.backgroundImage = `url('${img.src}')`;
+      };
+
+      container.onmouseleave = () => {
+        loupe.style.display = "none";
+      };
+
+      container.onmousemove = (e) => {
+        const rect = img.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+          loupe.style.display = "none";
+          return;
+        }
+        loupe.style.display = "block";
+
+        const loupeRadius = 90;
+        loupe.style.left = `${e.clientX - container.getBoundingClientRect().left - loupeRadius}px`;
+        loupe.style.top = `${e.clientY - container.getBoundingClientRect().top - loupeRadius}px`;
+
+        const bgW = rect.width * zoom;
+        const bgH = rect.height * zoom;
+        const bgX = -(x * zoom - loupeRadius);
+        const bgY = -(y * zoom - loupeRadius);
+
+        loupe.style.backgroundSize = `${bgW}px ${bgH}px`;
+        loupe.style.backgroundPosition = `${bgX}px ${bgY}px`;
+      };
+    }
+
+    // Wymuszenie strzału z poziomu interfejsu (dla testów wygody)
+    async function triggerTestSolve() {
+      try {
+        showToast("Wysyłanie żądania strzału...");
+        const resp = await fetch(`${API_BASE}/api/trigger_solve?allow_cached=true`, { method: "POST" });
+        const res = await resp.json();
+        if (res.status === "processing") {
+          showToast("Kadr jest przetwarzany...");
+        } else {
+          showToast(res.message || "Brak świeżego kadru");
+        }
+      } catch (e) {
+        showToast("Błąd połączenia z serwerem");
+      }
+    }
+
+    async function toggleAiMode() {
+      try {
+        const resp = await fetch(`${API_BASE}/api/toggle_ai`, { method: "POST" });
+        const res = await resp.json();
+        showToast(res.ai_enabled ? "WŁĄCZONO Claude AI Solver!" : "Włączono Tryb Testu Kadru (0 zł)");
+      } catch (e) {
+        showToast("Błąd zmiany trybu");
+      }
+    }
+
+    // Start pętli sprawdzania po załadowaniu
+    window.addEventListener("DOMContentLoaded", () => {
+      checkCameraLoop();
+    });
+  </script>
+</body>
+</html>
