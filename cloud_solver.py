@@ -364,14 +364,14 @@ def generate_photo_test_html(full_enhanced_path, mean_brightness, capture_time):
             thumb_b64 = base64.b64encode(f.read()).decode("utf-8")
 
     if mean_brightness < 60.0:
-        badge = '<span style="color:#ef4444; background:#450a0a; padding:2px 8px; border-radius:4px; font-weight:bold;">⚠️ BARDZO CIEMNO (<60)</span>'
-        tip = "Kamera potrzebuje więcej światła lub dłuższej adaptacji AEC."
+        badge = '<span style="color:#ef4444; background:#450a0a; padding:2px 8px; border-radius:4px; font-weight:bold;">⚠️ CIEMNO (<60)</span>'
+        tip = "Mało światła w kadrze — doświetl kartkę."
     elif mean_brightness < 110.0:
         badge = '<span style="color:#f59e0b; background:#451a03; padding:2px 8px; border-radius:4px; font-weight:bold;">⚠️ ŚREDNIA JASNOŚĆ (60-110)</span>'
-        tip = "Tekst czytelny po rozjaśnieniu Gamma. Można śmiało włączyć AI."
+        tip = "Naturalny kadr bez filtrów. Możesz włączyć AI."
     else:
         badge = '<span style="color:#10b981; background:#064e3b; padding:2px 8px; border-radius:4px; font-weight:bold;">✅ DOBRA EKSPOZYCJA (>110)</span>'
-        tip = "Papier jest jasny, czcionka ostra i kontrastowa."
+        tip = "Papier jest jasny, czcionka naturalna i wyraźna."
 
     img_html = f"<img src='data:image/jpeg;base64,{thumb_b64}' style='max-width: 100%; height: auto; border-radius: 6px; border: 1px solid #334155; display: block; margin: 8px auto;' />" if thumb_b64 else "<div style='color: #64748b;'>Brak zdjęcia</div>"
 
@@ -382,7 +382,7 @@ def generate_photo_test_html(full_enhanced_path, mean_brightness, capture_time):
     </div>
 
     <div style="background: #090d16; border: 1px solid #1e293b; border-radius: 8px; padding: 8px; margin-bottom: 14px; text-align: center;">
-      <div style="font-size: 10px; color: #94a3b8; font-weight: bold; margin-bottom: 4px; text-transform: uppercase;">Odebrany kadr z kamery (Gamma Boost + CLAHE)</div>
+      <div style="font-size: 10px; color: #94a3b8; font-weight: bold; margin-bottom: 4px; text-transform: uppercase;">Oryginalny kadr z kamery (Auto / Bez filtrów)</div>
       {img_html}
       <div style="font-size: 11px; color: #cbd5e1; text-align: left; padding: 4px 6px; line-height: 1.6;">
         <div>Średnia jasność: <strong>{round(mean_brightness, 1)} / 255</strong></div>
@@ -450,49 +450,13 @@ def enhance_and_crop(raw_jpeg_bytes):
     raw_path = os.path.join(FINAL_PHOTOS_DIR, "raw_capture.jpg")
     cv2.imwrite(raw_path, img, [cv2.IMWRITE_JPEG_QUALITY, 93])
 
-    # 1. OBROT DO NATURALNEJ PIONOWEJ ORIENTACJI (zgodnie z ustawieniem sprzetowym kamery)
-    result = apply_camera_rotation(img)
-    if result is None:
-        result = img.copy()
-
-    # 2. ADAPTACYJNA ANALIZA OŚWIETLENIA (LOW-LIGHT ENHANCEMENT)
-    gray_init = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
-    mean_val = float(np.mean(gray_init))
-
-    # W słabym świetle zachowujemy ostrość liter: delikatne odszumianie bez rozmywania czcionki
-    if mean_val < 110.0:
-        # Ciemne oświetlenie: bardzo subtelny filtr zachowujący cienkie linie liter
-        denoised = cv2.bilateralFilter(result, d=5, sigmaColor=12, sigmaSpace=12)
-        # Dynamiczna korekcja Gamma podnosząca cienie
-        gamma = 0.42 if mean_val < 60.0 else 0.55
-        clip_limit = 3.2 if mean_val < 60.0 else 2.6
-    else:
-        # Dobre oświetlenie
-        denoised = cv2.bilateralFilter(result, d=7, sigmaColor=25, sigmaSpace=25)
-        gamma = 0.70
-        clip_limit = 1.8
-
-    lut = np.array([((i / 255.0) ** gamma) * 255 for i in range(256)]).astype("uint8")
-    brightened = cv2.LUT(denoised, lut)
-
-    # 3. NORMALIZACJA KONTRASTU W PRZESTRZENI LAB (CLAHE WYCIĄGAJĄCE DRUK PAPIERU)
-    lab = cv2.cvtColor(brightened, cv2.COLOR_BGR2LAB)
-    l, a, b_ch = cv2.split(lab)
-
-    p_low, p_high = np.percentile(l, (1, 99))
-    if p_high > p_low + 8:
-        l_norm = np.clip((l.astype(np.float32) - p_low) / (p_high - p_low) * 235 + 10, 0, 255).astype(np.uint8)
-    else:
-        l_norm = l
-
-    # Adaptacyjny CLAHE podbijający lokalny kontrast tekstu na papierze
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
-    l_enhanced = clahe.apply(l_norm)
-
-    final_full = cv2.cvtColor(cv2.merge([l_enhanced, a, b_ch]), cv2.COLOR_LAB2BGR)
+    # Czysta orientacja pionowa bez żadnych sztucznych filtrów (zero gamma/CLAHE/bilateral)
+    final_full = apply_camera_rotation(img)
+    if final_full is None:
+        final_full = img.copy()
 
     full_path = os.path.join(FINAL_PHOTOS_DIR, "ideal_capture.jpg")
-    cv2.imwrite(full_path, final_full, [cv2.IMWRITE_JPEG_QUALITY, 93])
+    cv2.imwrite(full_path, final_full, [cv2.IMWRITE_JPEG_QUALITY, 95])
 
     h, w = final_full.shape[:2]
     slices = [
