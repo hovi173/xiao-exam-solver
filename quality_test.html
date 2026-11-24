@@ -451,12 +451,12 @@
       <!-- MAIN VIEWER -->
       <div class="card">
         <div class="card-title">
-          <span>Przechwycony Kadr (5 MP · 2560×1920)</span>
+          <span>Przechwycony Kadr (Auto · Bez filtrów)</span>
           <span id="captureTimeBadge" style="font-size: 11px; color: var(--accent-blue);">Czas: --:--:--</span>
         </div>
 
         <div class="image-viewer-container" id="viewerContainer">
-          <img id="mainImage" class="main-image" src="" alt="Kliknij przycisk na kamerce, aby zrobić zdjęcie...">
+          <img id="mainImage" class="main-image" crossorigin="anonymous" src="" alt="Kliknij przycisk na kamerce, aby zrobić zdjęcie...">
           <div id="magnifierLoupe" class="magnifier-loupe"></div>
         </div>
 
@@ -662,6 +662,7 @@
       // Załaduj zdjęcie do głównego podglądu z timestampem zapobiegającym cache
       const imgUrl = `${API_BASE}/api/latest_photo?t=${Date.now()}`;
       const imgEl = document.getElementById("mainImage");
+      imgEl.crossOrigin = "anonymous";
       
       imgEl.onload = () => {
         document.getElementById("frameDimensions").textContent = 
@@ -747,7 +748,7 @@
         badgeB.className = "metric-badge badge-warn";
         badgeB.textContent = "🌘 Półmrok (Wystarczające)";
         barB.style.backgroundColor = "var(--accent-yellow)";
-        tipB.textContent = "Słabe oświetlenie, ale automatyczny filtr CLAHE rozjaśnił tekst.";
+        tipB.textContent = "Słabsze oświetlenie — naturalny obraz prosto z kamery.";
       } else if (lum <= 165) {
         badgeB.className = "metric-badge badge-excellent";
         badgeB.textContent = "☀️ Optymalne Światło";
