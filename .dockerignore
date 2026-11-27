@@ -10,3 +10,5 @@ env/
 venv/
 .DS_Store
 *.log
+ai_mode.json
+latest_solution.json

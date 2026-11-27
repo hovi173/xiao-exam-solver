@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 .env
+ai_mode.json
+latest_solution.json
