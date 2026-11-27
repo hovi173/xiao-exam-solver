@@ -4,6 +4,7 @@ import time
 import json
 import base64
 import hashlib
+import hmac
 import re
 import threading
 from datetime import datetime
@@ -30,6 +31,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FINAL_PHOTOS_DIR = os.path.join(BASE_DIR, "final_photos")
 CAPTURED_DIR = os.path.join(BASE_DIR, "captured_photos")
 WATCH_TEMPLATE_PATH = os.path.join(BASE_DIR, "watch_template.html")
+FOTO_TEMPLATE_PATH = os.path.join(BASE_DIR, "foto_template.html")
 SOLUTION_FILE = os.path.join(BASE_DIR, "latest_solution.json")
 AI_MODE_FILE = os.path.join(BASE_DIR, "ai_mode.json")
 LIVE_FRAME_PATH = os.path.join(FINAL_PHOTOS_DIR, "latest_live_frame.jpg")
@@ -42,6 +44,9 @@ AI_ENABLED = True  # Produkcja: zawsze włączone (Stage 1 Haiku 5.5 -> Stage 2 
 OCR_MODEL = "claude-haiku-5-5"
 SOLVER_MODEL = "claude-opus-5-5"
 ANTHROPIC_API_KEY = ""
+PHONE_PIN = ""
+PHONE_TOKEN_SECRET = "xiao-phone-auth-v1"
+DEFAULT_PHONE_PIN_HASH = "74e5927a9ac148915bbfea9b0e1e0ea4a6558abe1513b00104c2b8b8543ffdaf"
 
 def load_ai_mode():
     global AI_ENABLED
@@ -67,10 +72,13 @@ def save_ai_mode(enabled):
 load_ai_mode()
 
 def reload_env():
-    global MOCK_MODE, AI_ENABLED, OCR_MODEL, SOLVER_MODEL, ANTHROPIC_API_KEY
+    global MOCK_MODE, AI_ENABLED, OCR_MODEL, SOLVER_MODEL, ANTHROPIC_API_KEY, PHONE_PIN, PHONE_TOKEN_SECRET
+    # Jeśli użytkownik przełączył AI w UI (istnieje ai_mode.json), nie nadpisujemy go domyślną zmienną środowiskową
+    has_user_ai_override = os.path.exists(AI_MODE_FILE)
+
     if "MOCK_MODE" in os.environ:
         MOCK_MODE = (os.environ["MOCK_MODE"].strip().lower() in ("true", "1", "yes"))
-    if "AI_ENABLED" in os.environ:
+    if not has_user_ai_override and "AI_ENABLED" in os.environ:
         AI_ENABLED = (os.environ["AI_ENABLED"].strip().lower() in ("true", "1", "yes"))
     if "OCR_MODEL" in os.environ:
         v = os.environ["OCR_MODEL"].strip()
@@ -83,6 +91,12 @@ def reload_env():
     if "ANTHROPIC_API_KEY" in os.environ:
         v = os.environ["ANTHROPIC_API_KEY"].strip()
         if v: ANTHROPIC_API_KEY = v
+    if "PHONE_PIN" in os.environ:
+        v = os.environ["PHONE_PIN"].strip()
+        if v: PHONE_PIN = v
+    if "PHONE_TOKEN_SECRET" in os.environ:
+        v = os.environ["PHONE_TOKEN_SECRET"].strip()
+        if v: PHONE_TOKEN_SECRET = v
 
     ENV_FILE = os.path.join(BASE_DIR, ".env")
     if os.path.exists(ENV_FILE):
@@ -94,14 +108,40 @@ def reload_env():
                         k, v = line.split("=", 1)
                         k, v = k.strip(), v.strip().strip('"').strip("'")
                         if k == "MOCK_MODE": MOCK_MODE = (v.lower() in ("true", "1", "yes"))
-                        elif k == "AI_ENABLED": AI_ENABLED = (v.lower() in ("true", "1", "yes"))
+                        elif k == "AI_ENABLED" and not has_user_ai_override: AI_ENABLED = (v.lower() in ("true", "1", "yes"))
                         elif k == "OCR_MODEL" and v: OCR_MODEL = v
                         elif k == "SOLVER_MODEL" and v: SOLVER_MODEL = v
                         elif k == "ANTHROPIC_API_KEY" and v: ANTHROPIC_API_KEY = v
+                        elif k == "PHONE_PIN" and v: PHONE_PIN = v
+                        elif k == "PHONE_TOKEN_SECRET" and v: PHONE_TOKEN_SECRET = v
         except Exception as e:
             print(f"[ENV] Błąd wczytywania .env: {e}")
 
 reload_env()
+
+def _get_pin_digest():
+    reload_env()
+    if PHONE_PIN:
+        return hashlib.sha256(PHONE_PIN.encode("utf-8")).hexdigest()
+    return DEFAULT_PHONE_PIN_HASH
+
+def verify_phone_pin(candidate):
+    cand = (candidate or "").strip()
+    if not cand:
+        return False
+    cand_hash = hashlib.sha256(cand.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(cand_hash, _get_pin_digest())
+
+def get_expected_phone_token():
+    secret = _get_pin_digest()
+    salt = PHONE_TOKEN_SECRET or "xiao-phone-auth-v1"
+    return hmac.new(salt.encode("utf-8"), secret.encode("utf-8"), hashlib.sha256).hexdigest()
+
+def is_phone_authorized(req):
+    token = (req.headers.get("X-Phone-Token") or req.query.get("token") or req.get_cookie("xiao_phone_token") or "").strip()
+    if not token:
+        return False
+    return hmac.compare_digest(token, get_expected_phone_token())
 
 latest_solution = {
     "status": "ready",
@@ -440,7 +480,7 @@ def apply_camera_rotation(img):
         else:
             return img.copy()
 
-def enhance_and_crop(raw_jpeg_bytes):
+def enhance_and_crop(raw_jpeg_bytes, skip_rotation=False):
     nparr = np.frombuffer(raw_jpeg_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
@@ -450,10 +490,14 @@ def enhance_and_crop(raw_jpeg_bytes):
     raw_path = os.path.join(FINAL_PHOTOS_DIR, "raw_capture.jpg")
     cv2.imwrite(raw_path, img, [cv2.IMWRITE_JPEG_QUALITY, 93])
 
-    # Czysta orientacja pionowa bez żadnych sztucznych filtrów (zero gamma/CLAHE/bilateral)
-    final_full = apply_camera_rotation(img)
-    if final_full is None:
+    if skip_rotation:
+        # Zdjęcie z telefonu jest już zorientowane pionowo/naturalnie (EXIF obsłużony w przeglądarce)
         final_full = img.copy()
+    else:
+        # Czysta orientacja pionowa bez żadnych sztucznych filtrów (zero gamma/CLAHE/bilateral)
+        final_full = apply_camera_rotation(img)
+        if final_full is None:
+            final_full = img.copy()
 
     full_path = os.path.join(FINAL_PHOTOS_DIR, "ideal_capture.jpg")
     cv2.imwrite(full_path, final_full, [cv2.IMWRITE_JPEG_QUALITY, 95])
@@ -493,6 +537,54 @@ def serve_test_ui():
     if os.path.exists(test_path):
         return static_file("quality_test.html", root=BASE_DIR)
     return "<div style='color:white;background:black;padding:20px;font-family:sans-serif;'>Quality test template not found.</div>"
+
+@app.route("/foto")
+@app.route("/foto/")
+def serve_foto_ui():
+    if os.path.exists(FOTO_TEMPLATE_PATH):
+        response.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        return static_file("foto_template.html", root=BASE_DIR)
+    return "<div style='color:white;background:black;padding:20px;font-family:sans-serif;'>Foto template not found.</div>"
+
+@app.route("/api/phone_auth", method=["POST", "OPTIONS"])
+def handle_phone_auth():
+    if request.method == "OPTIONS":
+        response.set_header("Access-Control-Allow-Origin", "*")
+        response.set_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        response.set_header("Access-Control-Allow-Headers", "*")
+        return ""
+
+    response.content_type = "application/json"
+    response.set_header("Access-Control-Allow-Origin", "*")
+    try:
+        payload = request.json or {}
+    except Exception:
+        payload = {}
+
+    pin = str(payload.get("pin", "")).strip()
+    if verify_phone_pin(pin):
+        token = get_expected_phone_token()
+        return json.dumps({"ok": True, "token": token})
+
+    time.sleep(0.35)
+    response.status = 401
+    return json.dumps({"ok": False, "message": "Nieprawidłowy PIN"})
+
+@app.route("/api/phone_verify", method=["GET", "OPTIONS"])
+def handle_phone_verify():
+    if request.method == "OPTIONS":
+        response.set_header("Access-Control-Allow-Origin", "*")
+        response.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        response.set_header("Access-Control-Allow-Headers", "*")
+        return ""
+
+    response.content_type = "application/json"
+    response.set_header("Access-Control-Allow-Origin", "*")
+    if is_phone_authorized(request):
+        return json.dumps({"authorized": True})
+
+    response.status = 401
+    return json.dumps({"authorized": False})
 
 @app.route("/health")
 @app.route("/api/health")
@@ -682,7 +774,7 @@ def handle_clear():
     response.set_header("Access-Control-Allow-Origin", "*")
     return json.dumps({"status": "cleared", "time": now_str})
 
-def execute_solution_pipeline(frame_bytes):
+def execute_solution_pipeline(frame_bytes, source="xiao"):
     global latest_solution
     now_str = datetime.now().strftime("%H:%M:%S")
     latest_solution["status"] = "processing"
@@ -694,8 +786,25 @@ def execute_solution_pipeline(frame_bytes):
     with open(SOLUTION_FILE, "w", encoding="utf-8") as f:
         json.dump(latest_solution, f, ensure_ascii=False, indent=2)
 
-    full_img, crops, mean_brightness = enhance_and_crop(frame_bytes)
+    full_img, crops, mean_brightness = enhance_and_crop(
+        frame_bytes, skip_rotation=(source in ("phone", "pre_oriented"))
+    )
     reload_env()
+
+    if full_img is None:
+        print(f"[PIPELINE BŁĄD] Nie udało się zdekodować obrazu (source={source}, bytes={len(frame_bytes) if frame_bytes else 0})")
+        err_html = "<div style='color:#f87171; padding: 16px;'>Nie udało się odczytać przesłanego zdjęcia. Spróbuj zrobić zdjęcie ponownie.</div>"
+        sol_hash = "err_" + str(int(time.time()))
+        latest_solution["status"] = "ready"
+        latest_solution["stage"] = 4
+        latest_solution["stage_text"] = "Błąd odczytu zdjęcia"
+        latest_solution["html"] = err_html
+        latest_solution["time"] = now_str
+        latest_solution["hash"] = sol_hash
+        latest_solution["guidance"] = ""
+        with open(SOLUTION_FILE, "w", encoding="utf-8") as f:
+            json.dump(latest_solution, f, ensure_ascii=False, indent=2)
+        return sol_hash
 
     # TRYB TESTOWY (AI WYŁĄCZONE): Wyświetlamy zdjęcie z kamery na zegarku bez zużywania API
     if not AI_ENABLED:
@@ -891,7 +1000,7 @@ def handle_solve_live():
         json.dump(latest_solution, f, ensure_ascii=False, indent=2)
 
     frame_copy = bytes(frame_to_use)
-    ai_executor.submit(execute_solution_pipeline, frame_copy)
+    ai_executor.submit(execute_solution_pipeline, frame_copy, "pre_oriented")
 
     return json.dumps({
         "status": "processing",
@@ -901,9 +1010,24 @@ def handle_solve_live():
         "frame_source": frame_source
     })
 
+def submit_frame_to_pipeline(frame_bytes, source="xiao"):
+    """Wspólny punkt uruchomienia potoku analizy dla kamerki XIAO i telefonu."""
+    global latest_upload_timestamp, latest_solution
+    now_str = datetime.now().strftime("%H:%M:%S")
+    latest_upload_timestamp = time.time()
+    latest_solution["status"] = "processing"
+    latest_solution["stage"] = 1
+    latest_solution["stage_text"] = "1. Odbieranie klatki..."
+    latest_solution["time"] = now_str
+    latest_solution["hash"] = "proc_" + str(int(time.time()))
+    with open(SOLUTION_FILE, "w", encoding="utf-8") as f:
+        json.dump(latest_solution, f, ensure_ascii=False, indent=2)
+
+    ai_executor.submit(execute_solution_pipeline, frame_bytes, source)
+    return now_str
+
 @app.route("/upload", method=["POST", "OPTIONS"])
 def handle_upload():
-    global latest_solution
     if request.method == "OPTIONS":
         response.set_header("Access-Control-Allow-Origin", "*")
         response.set_header("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -918,8 +1042,9 @@ def handle_upload():
     burst_id = request.headers.get("X-Burst-Id", str(int(time.time())))
     burst_idx = int(request.headers.get("X-Burst-Index", "1"))
     burst_total = int(request.headers.get("X-Burst-Total", "1"))
+    req_source = "phone" if (request.headers.get("X-Source", "").lower() == "phone" and is_phone_authorized(request)) else "xiao"
 
-    print(f"[UPLOAD] Odebrano klatkę {burst_idx}/{burst_total} (Burst ID: {burst_id}, {len(body)} B)")
+    print(f"[UPLOAD:{req_source.upper()}] Odebrano klatkę {burst_idx}/{burst_total} (Burst ID: {burst_id}, {len(body)} B)")
 
     if burst_id not in burst_accumulator:
         burst_accumulator[burst_id] = []
@@ -929,25 +1054,69 @@ def handle_upload():
     if len(burst_accumulator[burst_id]) >= burst_total or burst_total == 1:
         frames = burst_accumulator.pop(burst_id)
         now_str = datetime.now().strftime("%H:%M:%S")
-        print(f"[PIPELINE] Przetwarzanie serii {len(frames)} klatek o godz. {now_str} (wątek asynchroniczny)...")
+        print(f"[PIPELINE] Przetwarzanie serii {len(frames)} klatek ({req_source}) o godz. {now_str} (wątek asynchroniczny)...")
 
         best_frame = select_sharpest_frame(frames) if len(frames) > 1 else frames[0]
-
-        # Natychmiast ustawiamy status "processing"
-        global latest_upload_timestamp
-        latest_upload_timestamp = time.time()
-        latest_solution["status"] = "processing"
-        latest_solution["stage"] = 1
-        latest_solution["stage_text"] = "1. Odbieranie klatki..."
-        latest_solution["time"] = now_str
-        latest_solution["hash"] = "proc_" + str(int(time.time()))
-        with open(SOLUTION_FILE, "w", encoding="utf-8") as f:
-            json.dump(latest_solution, f, ensure_ascii=False, indent=2)
-
-        ai_executor.submit(execute_solution_pipeline, best_frame)
+        submit_frame_to_pipeline(best_frame, source=req_source)
 
     response.set_header("Access-Control-Allow-Origin", "*")
     return json.dumps({"status": "processing", "burst_id": burst_id, "index": burst_idx, "mock": MOCK_MODE})
+
+@app.route("/api/phone_upload", method=["POST", "OPTIONS"])
+def handle_phone_upload():
+    if request.method == "OPTIONS":
+        response.set_header("Access-Control-Allow-Origin", "*")
+        response.set_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        response.set_header("Access-Control-Allow-Headers", "*")
+        return ""
+
+    response.content_type = "application/json"
+    response.set_header("Access-Control-Allow-Origin", "*")
+
+    if not is_phone_authorized(request):
+        response.status = 401
+        return json.dumps({"status": "error", "message": "Brak autoryzacji PIN"})
+
+    body = None
+    try:
+        if request.files:
+            upload_file = request.files.get("file") or request.files.get("photo")
+            if upload_file is None:
+                first_key = next(iter(request.files), None)
+                if first_key:
+                    upload_file = request.files.get(first_key)
+            if upload_file is not None:
+                body = upload_file.file.read()
+    except Exception as ef:
+        print(f"[PHONE UPLOAD] Błąd multipart: {ef}")
+
+    if not body:
+        body = request.body.read()
+
+    if not body:
+        response.status = 400
+        return json.dumps({"status": "error", "message": "Puste zdjęcie"})
+
+    arr = np.frombuffer(body, np.uint8)
+    probe = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if probe is None:
+        response.status = 400
+        return json.dumps({"status": "error", "message": "Nieobsługiwany format zdjęcia (wyślij JPG/PNG/WebP)"})
+
+    h, w = probe.shape[:2]
+    print(f"[PHONE UPLOAD] Odebrano zdjęcie z telefonu ({w}x{h}, {len(body)} B)")
+    now_str = submit_frame_to_pipeline(body, source="phone")
+
+    return json.dumps({
+        "status": "processing",
+        "source": "phone",
+        "width": w,
+        "height": h,
+        "bytes": len(body),
+        "time": now_str,
+        "ai_enabled": AI_ENABLED,
+        "mock": MOCK_MODE
+    })
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Panel mobilny</title>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      background: #000000;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100dvh;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding: max(14px, env(safe-area-inset-top)) 14px max(28px, env(safe-area-inset-bottom)) 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .app-shell {
+      width: 100%;
+      max-width: 460px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* ==================== EKRAM ŁADOWANIA AUTORYZACJI ==================== */
+    #authLoading {
+      min-height: 75dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      text-align: center;
+      color: #94a3b8;
+      font-size: 13px;
+    }
+
+    .spinner {
+      width: 34px;
+      height: 34px;
+      border: 3px solid #1e293b;
+      border-top-color: #38bdf8;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* ==================== EKRAN UKRYTEGO PIN-U ==================== */
+    #pinGate {
+      min-height: 82dvh;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      padding: 12px 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .pin-header {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pin-lock-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.7);
+    }
+
+    .pin-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #f8fafc;
+      letter-spacing: -0.2px;
+    }
+
+    .pin-sub {
+      font-size: 12px;
+      color: #64748b;
+      min-height: 16px;
+    }
+
+    .pin-sub.error {
+      color: #f87171;
+      font-weight: 600;
+    }
+
+    .pin-dots {
+      display: flex;
+      gap: 14px;
+      padding: 8px 16px;
+    }
+
+    .pin-dots.shake {
+      animation: shake 0.36s cubic-bezier(.36,.07,.19,.97) both;
+    }
+
+    @keyframes shake {
+      10%, 90% { transform: translateX(-3px); }
+      20%, 80% { transform: translateX(5px); }
+      30%, 50%, 70% { transform: translateX(-6px); }
+      40%, 60% { transform: translateX(6px); }
+    }
+
+    .pin-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid #334155;
+      background: transparent;
+      transition: all 0.14s ease;
+    }
+
+    .pin-dot.filled {
+      border-color: #38bdf8;
+      background: #38bdf8;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.55);
+      transform: scale(1.08);
+    }
+
+    .pin-dot.ok {
+      border-color: #10b981;
+      background: #10b981;
+      box-shadow: 0 0 12px rgba(16, 185, 129, 0.7);
+    }
+
+    .pin-dot.bad {
+      border-color: #ef4444;
+      background: #ef4444;
+      box-shadow: 0 0 10px rgba(239, 68, 68, 0.65);
+    }
+
+    .keypad {
+      display: grid;
+      grid-template-columns: repeat(3, 74px);
+      gap: 14px;
+      justify-content: center;
+      margin-top: 4px;
+    }
+
+    .key-btn {
+      width: 74px;
+      height: 74px;
+      border-radius: 50%;
+      border: 1px solid #1e293b;
+      background: #0b1120;
+      color: #f8fafc;
+      font-size: 26px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.12s ease, transform 0.08s ease;
+      touch-action: manipulation;
+    }
+
+    .key-btn:active {
+      background: #1e293b;
+      transform: scale(0.93);
+    }
+
+    .key-btn.key-fn {
+      background: transparent;
+      border-color: transparent;
+      color: #94a3b8;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .key-btn.key-fn:active {
+      background: #0f172a;
+    }
+
+    .pin-submit-btn {
+      margin-top: 6px;
+      background: #0f172a;
+      color: #94a3b8;
+      border: 1px solid #1e293b;
+      border-radius: 999px;
+      padding: 8px 22px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* ==================== GŁÓWNY PANEL PO ODBLOKOWANIU ==================== */
+    #captureView {
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+      width: 100%;
+    }
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: #090d16;
+      border: 1px solid #1e293b;
+      border-radius: 999px;
+      padding: 6px 10px 6px 12px;
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #e2e8f0;
+      min-width: 0;
+    }
+
+    .status-text-ellipsis {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+    }
+
+    .status-dot.waiting {
+      background: #f59e0b;
+      box-shadow: 0 0 8px #f59e0b;
+      animation: pulse 0.9s infinite alternate;
+    }
+
+    .status-dot.offline {
+      background: #ef4444;
+      box-shadow: 0 0 8px #ef4444;
+    }
+
+    @keyframes pulse {
+      from { opacity: 0.45; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1.2); }
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .btn-ai-pill {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #94a3b8;
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+
+    .btn-ai-pill.active {
+      background: #064e3b;
+      border-color: #10b981;
+      color: #6ee7b7;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+    }
+
+    .btn-lock {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      color: #64748b;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* PRZYCISK DODAJ ZDJĘCIE (NATYWNY WYBÓR IPHONE: APARAT / BIBLIOTEKA / PLIK) */
+    .add-photo-label {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      min-height: 156px;
+      border-radius: 20px;
+      background: linear-gradient(145deg, #07192d 0%, #0a1020 100%);
+      border: 2px dashed #0284c7;
+      box-shadow: 0 8px 28px rgba(2, 132, 199, 0.18);
+      padding: 22px 16px;
+      text-align: center;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
+      touch-action: manipulation;
+    }
+
+    .add-photo-label:active {
+      transform: scale(0.98);
+      background: linear-gradient(145deg, #0c2744 0%, #0f172a 100%);
+      border-color: #38bdf8;
+    }
+
+    .add-photo-label.busy {
+      opacity: 0.65;
+      pointer-events: none;
+      border-style: solid;
+      border-color: #f59e0b;
+    }
+
+    .add-photo-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.45);
+    }
+
+    .add-photo-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: -0.2px;
+    }
+
+    .add-photo-sub {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    /* KARTA PODGLĄDU WYSYŁKI */
+    .upload-status-card {
+      display: none;
+      background: #090d16;
+      border: 1px solid #1e293b;
+      border-radius: 14px;
+      padding: 10px 12px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .upload-thumb {
+      width: 54px;
+      height: 54px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #000;
+      flex-shrink: 0;
+    }
+
+    .upload-meta {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .upload-meta-title {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+
+    .upload-meta-sub {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    /* PODGLĄD WYNIKU (IDENTYCZNE STYLE CO WATCH_TEMPLATE) */
+    .result-section {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .section-caption {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 0 2px;
+    }
+
+    #solutionBox {
+      background: #05070c;
+      border: 1px solid #1e293b;
+      border-radius: 14px;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.45;
+      min-height: 80px;
+      overflow-wrap: break-word;
+    }
+
+    .idle-hint-box {
+      text-align: center;
+      color: #64748b;
+      font-size: 12px;
+      padding: 16px 8px;
+    }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      padding-top: 6px;
+      font-size: 11.5px;
+    }
+
+    .footer-links a {
+      color: #64748b;
+      text-decoration: none;
+      padding: 4px 8px;
+    }
+
+    /* STYLE WYNIKÓW AI / KATEX / SVG */
+    .full-task { background: #000; border: 1.5px solid #1e293b; border-radius: 12px; padding: 12px 10px; margin-bottom: 12px; }
+    .task-top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #1e293b; padding-bottom: 6px; }
+    .task-header-num { font-size: 13px; font-weight: 900; color: #38bdf8; text-transform: uppercase; }
+    .task-title { font-size: 13.5px; font-weight: 800; color: #fff; margin-bottom: 8px; }
+    .schematic-box { background: #000; border: 1.5px solid #1e293b; border-radius: 10px; padding: 8px 4px 6px; margin: 10px 0; text-align: center; }
+    .schematic-tag { display: inline-block; font-size: 9.5px; font-weight: 800; padding: 2px 8px; border-radius: 999px; margin-bottom: 6px; background: #082f49; color: #38bdf8; border: 1px solid #0284c7; }
+    .schematic-box svg { width: 100%; height: auto; max-height: 180px; display: block; margin: 0 auto; background: #000 !important; }
+    .calc-step { background: #000; border-left: 3.5px solid #0284c7; border: 1px solid #111827; border-left-width: 3.5px; border-radius: 6px; padding: 9px 10px; margin: 10px 0; font-size: 12.5px; }
+    .step-num { font-size: 10.5px; font-weight: 800; color: #38bdf8; text-transform: uppercase; margin-bottom: 5px; }
+    .result-box { background: #000; border: 2px solid #fbbf24; border-radius: 12px; padding: 10px; margin: 12px 0 4px; text-align: center; }
+    .result-label { font-size: 10px; font-weight: 900; color: #fbbf24; text-transform: uppercase; margin-bottom: 4px; }
+    .result-val { font-size: 15px; font-weight: 900; color: #fff; }
+    .data-badge-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+    .data-chip { background: #000; border: 1px solid #1e3a5f; border-radius: 6px; padding: 3px 8px; font-size: 11.5px; color: #93c5fd; }
+    .katex-display { overflow-x: auto !important; max-width: 100% !important; padding: 4px 2px !important; }
+    .katex { color: #fff !important; }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- 1. WERYFIKACJA ZAPAMIĘTANEJ SESJI -->
+    <div id="authLoading">
+      <div class="spinner"></div>
+      <div id="authLoadingText">Łączenie z serwerem...</div>
+      <button id="authRetryBtn" class="pin-submit-btn" style="display:none;" onclick="verifySavedSession()">Spróbuj ponownie</button>
+    </div>
+
+    <!-- 2. UKRYTY PIN DO ODBLOKOWANIA TELEFONU (RAZ NA STAŁE) -->
+    <section id="pinGate" aria-label="Odblokowanie PIN">
+      <div class="pin-header">
+        <div class="pin-lock-icon">🔒</div>
+        <div class="pin-title">Dostęp prywatny</div>
+        <div id="pinSub" class="pin-sub">Podaj PIN, aby przypisać ten telefon</div>
+      </div>
+
+      <div id="pinDots" class="pin-dots">
+        <div class="pin-dot"></div>
+        <div class="pin-dot"></div>
+        <div class="pin-dot"></div>
+        <div class="pin-dot"></div>
+      </div>
+
+      <div class="keypad">
+        <button type="button" class="key-btn" onclick="pressDigit('1')">1</button>
+        <button type="button" class="key-btn" onclick="pressDigit('2')">2</button>
+        <button type="button" class="key-btn" onclick="pressDigit('3')">3</button>
+        <button type="button" class="key-btn" onclick="pressDigit('4')">4</button>
+        <button type="button" class="key-btn" onclick="pressDigit('5')">5</button>
+        <button type="button" class="key-btn" onclick="pressDigit('6')">6</button>
+        <button type="button" class="key-btn" onclick="pressDigit('7')">7</button>
+        <button type="button" class="key-btn" onclick="pressDigit('8')">8</button>
+        <button type="button" class="key-btn" onclick="pressDigit('9')">9</button>
+        <button type="button" class="key-btn key-fn" onclick="clearPin()">Wyczyść</button>
+        <button type="button" class="key-btn" onclick="pressDigit('0')">0</button>
+        <button type="button" class="key-btn key-fn" onclick="backspacePin()">⌫</button>
+      </div>
+
+      <button type="button" id="pinSubmitBtn" class="pin-submit-btn" onclick="submitCurrentPin()">Odblokuj</button>
+    </section>
+
+    <!-- 3. PANEL TELEFONU PO ODBLOKOWANIU -->
+    <main id="captureView">
+      <div class="top-bar">
+        <div class="status-pill">
+          <div id="statusDot" class="status-dot"></div>
+          <span id="statusText" class="status-text-ellipsis">Gotowy do zdjęcia</span>
+        </div>
+
+        <div class="top-actions">
+          <button type="button" id="aiToggleBtn" class="btn-ai-pill" onclick="toggleAiMode()">
+            📷 Test (0 zł)
+          </button>
+          <button type="button" class="btn-lock" title="Zablokuj ten telefon" onclick="lockPhone()">🔒</button>
+        </div>
+      </div>
+
+      <!-- NATYWNE iOS "DODAJ ZDJĘCIE": APARAT / BIBLIOTEKA ZDJĘĆ / WYBIERZ PLIK -->
+      <label for="photoInput" id="addPhotoLabel" class="add-photo-label">
+        <div class="add-photo-icon">📷</div>
+        <div class="add-photo-title" id="addPhotoTitle">Dodaj zdjęcie</div>
+        <div class="add-photo-sub" id="addPhotoSub">Aparat · Biblioteka zdjęć · Wybierz plik</div>
+      </label>
+      <input
+        id="photoInput"
+        type="file"
+        accept="image/*"
+        style="position:fixed;top:-9999px;left:-9999px;opacity:0;width:1px;height:1px;"
+      />
+
+      <!-- STATUS WYSYŁANEGO ZDJĘCIA -->
+      <div id="uploadStatusCard" class="upload-status-card">
+        <img id="uploadThumb" class="upload-thumb" alt="Wybrane zdjęcie">
+        <div class="upload-meta">
+          <div id="uploadMetaTitle" class="upload-meta-title">Przetwarzanie...</div>
+          <div id="uploadMetaSub" class="upload-meta-sub">Przygotowanie kadru</div>
+        </div>
+      </div>
+
+      <!-- PODGLĄD OSTATNIEGO WYNIKU / TESTU KADRU -->
+      <section class="result-section">
+        <div class="section-caption">
+          <span>Ostatni wynik (synchronizacja z zegarkiem)</span>
+          <span id="solutionTime">--:--:--</span>
+        </div>
+        <div id="solutionBox">
+          <div class="idle-hint-box">Oczekiwanie na pierwsze zdjęcie z telefonu lub kamerki XIAO.</div>
+        </div>
+      </section>
+
+      <nav class="footer-links">
+        <a href="/watch">⌚ Widok zegarka (/watch)</a>
+        <a href="/test">🔬 Laboratorium (/test)</a>
+      </nav>
+    </main>
+
+  </div>
+
+  <script>
+    const TOKEN_KEY = "xiao_phone_token";
+    let enteredPin = "";
+    let isSubmittingPin = false;
+    let isUploading = false;
+    let lastSolutionHash = "";
+    let pollTimer = null;
+    let currentStatus = "idle";
+
+    function getSavedToken() {
+      try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; }
+    }
+
+    function saveToken(token) {
+      try { localStorage.setItem(TOKEN_KEY, token); } catch (e) {}
+    }
+
+    function clearToken() {
+      try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    }
+
+    function showSection(sectionId) {
+      document.getElementById("authLoading").style.display = sectionId === "authLoading" ? "flex" : "none";
+      document.getElementById("pinGate").style.display = sectionId === "pinGate" ? "flex" : "none";
+      document.getElementById("captureView").style.display = sectionId === "captureView" ? "flex" : "none";
+    }
+
+    // =========================================================================
+    // LOGIKA PIN-U (UKRYTE KROPKI + WERYFIKACJA PO STRONIE SERWERA)
+    // =========================================================================
+    function renderPinDots(state = "") {
+      const dotsWrap = document.getElementById("pinDots");
+      const targetLen = Math.max(4, enteredPin.length);
+      while (dotsWrap.children.length < targetLen) {
+        const d = document.createElement("div");
+        d.className = "pin-dot";
+        dotsWrap.appendChild(d);
+      }
+      while (dotsWrap.children.length > 4 && dotsWrap.children.length > enteredPin.length) {
+        dotsWrap.removeChild(dotsWrap.lastChild);
+      }
+      Array.from(dotsWrap.children).forEach((dot, idx) => {
+        dot.className = "pin-dot";
+        if (idx < enteredPin.length) {
+          dot.classList.add("filled");
+          if (state) dot.classList.add(state);
+        }
+      });
+    }
+
+    function pressDigit(digit) {
+      if (isSubmittingPin) return;
+      if (enteredPin.length >= 8) return;
+      enteredPin += String(digit);
+      if (navigator.vibrate) try { navigator.vibrate(12); } catch (e) {}
+      const sub = document.getElementById("pinSub");
+      sub.className = "pin-sub";
+      sub.textContent = "Podaj PIN, aby przypisać ten telefon";
+      renderPinDots();
+
+      if (enteredPin.length === 4) {
+        setTimeout(() => {
+          if (enteredPin.length === 4 && !isSubmittingPin) {
+            submitCurrentPin();
+          }
+        }, 90);
+      }
+    }
+
+    function backspacePin() {
+      if (isSubmittingPin || !enteredPin) return;
+      enteredPin = enteredPin.slice(0, -1);
+      renderPinDots();
+    }
+
+    function clearPin() {
+      if (isSubmittingPin) return;
+      enteredPin = "";
+      renderPinDots();
+    }
+
+    async function submitCurrentPin() {
+      if (isSubmittingPin || !enteredPin) return;
+      isSubmittingPin = true;
+      const btn = document.getElementById("pinSubmitBtn");
+      btn.textContent = "Sprawdzanie...";
+
+      try {
+        const res = await fetch("/api/phone_auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pin: enteredPin })
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok && data.ok && data.token) {
+          saveToken(data.token);
+          renderPinDots("ok");
+          if (navigator.vibrate) try { navigator.vibrate([30, 30, 50]); } catch (e) {}
+          setTimeout(() => {
+            enteredPin = "";
+            isSubmittingPin = false;
+            btn.textContent = "Odblokuj";
+            enterUnlockedMode();
+          }, 180);
+          return;
+        }
+
+        // Błędny PIN
+        if (navigator.vibrate) try { navigator.vibrate([120, 40, 120]); } catch (e) {}
+        renderPinDots("bad");
+        const dotsWrap = document.getElementById("pinDots");
+        dotsWrap.classList.remove("shake");
+        void dotsWrap.offsetWidth;
+        dotsWrap.classList.add("shake");
+
+        const sub = document.getElementById("pinSub");
+        sub.className = "pin-sub error";
+        sub.textContent = data.message || "Nieprawidłowy PIN";
+
+        setTimeout(() => {
+          enteredPin = "";
+          renderPinDots();
+          isSubmittingPin = false;
+          btn.textContent = "Odblokuj";
+        }, 420);
+      } catch (err) {
+        isSubmittingPin = false;
+        btn.textContent = "Odblokuj";
+        const sub = document.getElementById("pinSub");
+        sub.className = "pin-sub error";
+        sub.textContent = "Błąd sieci — spróbuj ponownie";
+      }
+    }
+
+    // Obsługa klawiatury na komputerze / zewnętrznej klawiaturze
+    window.addEventListener("keydown", (e) => {
+      if (document.getElementById("pinGate").style.display !== "flex") return;
+      if (e.key >= "0" && e.key <= "9") {
+        pressDigit(e.key);
+      } else if (e.key === "Backspace") {
+        backspacePin();
+      } else if (e.key === "Enter") {
+        submitCurrentPin();
+      }
+    });
+
+    async function verifySavedSession() {
+      const token = getSavedToken();
+      if (!token) {
+        showSection("pinGate");
+        return;
+      }
+
+      showSection("authLoading");
+      const textEl = document.getElementById("authLoadingText");
+      const retryBtn = document.getElementById("authRetryBtn");
+      textEl.textContent = "Sprawdzanie dostępu...";
+      retryBtn.style.display = "none";
+
+      const wakeTimer = setTimeout(() => {
+        textEl.textContent = "Wybudzanie serwera Render (chwilka)...";
+      }, 2500);
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 35000);
+        const res = await fetch("/api/phone_verify?t=" + Date.now(), {
+          headers: { "X-Phone-Token": token },
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        clearTimeout(wakeTimer);
+
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (data.authorized) {
+            enterUnlockedMode();
+            return;
+          }
+        }
+        if (res.status === 401) {
+          clearToken();
+          showSection("pinGate");
+          return;
+        }
+        textEl.textContent = "Serwer odpowiada wolniej niż zwykle (HTTP " + res.status + ")";
+        retryBtn.style.display = "inline-block";
+      } catch (err) {
+        clearTimeout(wakeTimer);
+        textEl.textContent = "Brak odpowiedzi serwera. Sprawdź połączenie.";
+        retryBtn.style.display = "inline-block";
+      }
+    }
+
+    function lockPhone() {
+      clearToken();
+      stopPolling();
+      enteredPin = "";
+      renderPinDots();
+      const sub = document.getElementById("pinSub");
+      sub.className = "pin-sub";
+      sub.textContent = "Telefon zablokowany — podaj PIN";
+      showSection("pinGate");
+    }
+
+    function enterUnlockedMode() {
+      showSection("captureView");
+      checkLatestSolution();
+      scheduleNextPoll();
+    }
+
+    // =========================================================================
+    // PRZYGOTOWANIE I WYSYŁKA ZDJĘCIA (NORMALIZACJA EXIF + OPTYMALIZACJA ROZMIARU)
+    // =========================================================================
+    async function prepareImageBlob(file) {
+      const MAX_SIDE = 2048;
+      let objectUrl = null;
+      try {
+        let drawable = null;
+        let w = 0;
+        let h = 0;
+        try {
+          objectUrl = URL.createObjectURL(file);
+          const img = new Image();
+          img.src = objectUrl;
+          await img.decode();
+          w = img.naturalWidth;
+          h = img.naturalHeight;
+          drawable = img;
+        } catch (imgErr) {
+          if (typeof createImageBitmap === "function") {
+            const bmp = await createImageBitmap(file);
+            w = bmp.width;
+            h = bmp.height;
+            drawable = bmp;
+          } else {
+            throw imgErr;
+          }
+        }
+
+        if (!w || !h || !drawable) throw new Error("Empty image dimensions");
+
+        const scale = Math.min(1, MAX_SIDE / Math.max(w, h));
+        const targetW = Math.max(1, Math.round(w * scale));
+        const targetH = Math.max(1, Math.round(h * scale));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(drawable, 0, 0, targetW, targetH);
+        if (drawable && typeof drawable.close === "function") drawable.close();
+
+        const blob = await new Promise((resolve) =>
+          canvas.toBlob((b) => resolve(b), "image/jpeg", 0.90)
+        );
+        if (blob) {
+          return { blob, width: targetW, height: targetH, previewUrl: canvas.toDataURL("image/jpeg", 0.65) };
+        }
+      } catch (err) {
+        console.warn("Canvas image decode fallback -> raw file:", err);
+      } finally {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+      }
+
+      return { blob: file, width: 0, height: 0, previewUrl: "" };
+    }
+
+    async function handleFileSelected(file) {
+      if (!file || isUploading) return;
+      const token = getSavedToken();
+      if (!token) {
+        showSection("pinGate");
+        return;
+      }
+
+      isUploading = true;
+      const labelEl = document.getElementById("addPhotoLabel");
+      const titleEl = document.getElementById("addPhotoTitle");
+      const subEl = document.getElementById("addPhotoSub");
+      const cardEl = document.getElementById("uploadStatusCard");
+      const thumbEl = document.getElementById("uploadThumb");
+      const metaTitle = document.getElementById("uploadMetaTitle");
+      const metaSub = document.getElementById("uploadMetaSub");
+
+      labelEl.classList.add("busy");
+      titleEl.textContent = "Wysyłanie zdjęcia...";
+      subEl.textContent = "Przygotowanie kadru w wysokiej ostrości";
+      cardEl.style.display = "flex";
+      metaTitle.textContent = "Optymalizacja zdjęcia...";
+      metaSub.textContent = file.name || "Kadr z telefonu";
+
+      try {
+        const prepared = await prepareImageBlob(file);
+        if (prepared.previewUrl) {
+          thumbEl.src = prepared.previewUrl;
+        }
+        const kb = Math.round(prepared.blob.size / 1024);
+        const dims = prepared.width ? `${prepared.width}×${prepared.height} · ` : "";
+        metaTitle.textContent = "Wysyłanie na serwer...";
+        metaSub.textContent = `${dims}${kb} KB`;
+
+        const res = await fetch("/api/phone_upload", {
+          method: "POST",
+          headers: {
+            "X-Phone-Token": token,
+            "Content-Type": prepared.blob.type || "image/jpeg"
+          },
+          body: prepared.blob
+        });
+
+        if (res.status === 401) {
+          clearToken();
+          showSection("pinGate");
+          return;
+        }
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.message || ("Błąd HTTP " + res.status));
+        }
+
+        if (navigator.vibrate) try { navigator.vibrate([45, 40, 45]); } catch (e) {}
+        metaTitle.textContent = "✅ Wysłano jak z kamerki!";
+        metaSub.textContent = `${data.width}×${data.height} · ${data.ai_enabled ? "AI analizuje (Haiku → Opus)" : "Tryb Test Kadru (0 zł)"}`;
+
+        currentStatus = "processing";
+        setTopStatus("waiting", "1/4 Odbieranie klatki...");
+        setTimeout(checkLatestSolution, 250);
+      } catch (err) {
+        metaTitle.textContent = "⚠️ Błąd wysyłania";
+        metaSub.textContent = err.message || "Spróbuj ponownie";
+        setTopStatus("offline", "Błąd połączenia");
+      } finally {
+        isUploading = false;
+        labelEl.classList.remove("busy");
+        titleEl.textContent = "Dodaj zdjęcie";
+        subEl.textContent = "Aparat · Biblioteka zdjęć · Wybierz plik";
+      }
+    }
+
+    // =========================================================================
+    // SYNCHRONIZACJA Z SERWEREM, TOGGLE AI ORAZ RENDER KATEX
+    // =========================================================================
+    function setTopStatus(mode, text) {
+      const dot = document.getElementById("statusDot");
+      const txt = document.getElementById("statusText");
+      if (dot) dot.className = "status-dot" + (mode ? " " + mode : "");
+      if (txt) txt.textContent = text;
+    }
+
+    function updateAiButton(enabled) {
+      const btn = document.getElementById("aiToggleBtn");
+      if (!btn) return;
+      if (enabled) {
+        btn.classList.add("active");
+        btn.textContent = "🤖 AI: Włączone";
+      } else {
+        btn.classList.remove("active");
+        btn.textContent = "📷 Test (0 zł)";
+      }
+    }
+
+    async function toggleAiMode(forceEnable = null) {
+      let url = "/api/toggle_ai";
+      if (forceEnable !== null) {
+        url += "?enabled=" + (forceEnable ? "true" : "false");
+      }
+      try {
+        const res = await fetch(url, { method: "POST" });
+        const data = await res.json();
+        updateAiButton(data.ai_enabled);
+        if (forceEnable === true) {
+          await fetch("/api/trigger_solve?allow_cached=true", { method: "POST" });
+          currentStatus = "processing";
+          setTimeout(checkLatestSolution, 250);
+        }
+      } catch (e) {
+        console.error("Błąd przełączania AI:", e);
+      }
+    }
+
+    function renderMath() {
+      const target = document.getElementById("solutionBox");
+      if (window.renderMathInElement && target) {
+        try {
+          renderMathInElement(target, {
+            delimiters: [
+              { left: "$$", right: "$$", display: true },
+              { left: "$", right: "$", display: false }
+            ],
+            throwOnError: false
+          });
+        } catch (e) {}
+      } else {
+        setTimeout(renderMath, 180);
+      }
+    }
+
+    async function checkLatestSolution() {
+      if (document.getElementById("captureView").style.display !== "flex") return;
+      try {
+        const res = await fetch("/api/latest_solution?t=" + Date.now(), { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+
+        if (data.ai_enabled !== undefined) {
+          updateAiButton(data.ai_enabled);
+        }
+        document.getElementById("solutionTime").textContent = data.time || "--:--:--";
+
+        currentStatus = data.status || "idle";
+        if (data.status === "processing") {
+          setTopStatus("waiting", data.stage_text || "Przetwarzanie...");
+        } else if (data.status === "ready") {
+          setTopStatus("", "Gotowy · Odebrano " + (data.time || ""));
+          if (data.hash && data.hash !== lastSolutionHash) {
+            lastSolutionHash = data.hash;
+            if (data.html) {
+              document.getElementById("solutionBox").innerHTML = data.html;
+              renderMath();
+            }
+          }
+        } else if (data.status === "cleared") {
+          setTopStatus("", "Wyczyszczono");
+          if (data.hash !== lastSolutionHash) {
+            lastSolutionHash = data.hash;
+            document.getElementById("solutionBox").innerHTML =
+              '<div class="idle-hint-box">Historia wyczyszczona. Dodaj nowe zdjęcie powyżej.</div>';
+          }
+        }
+      } catch (err) {
+        setTopStatus("offline", "Brak połączenia");
+      }
+    }
+
+    function stopPolling() {
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    function scheduleNextPoll() {
+      stopPolling();
+      if (document.hidden || document.getElementById("captureView").style.display !== "flex") return;
+      const delay = (currentStatus === "processing" || isUploading) ? 550 : 2000;
+      pollTimer = setTimeout(async () => {
+        await checkLatestSolution();
+        scheduleNextPoll();
+      }, delay);
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        stopPolling();
+      } else if (document.getElementById("captureView").style.display === "flex") {
+        checkLatestSolution().then(scheduleNextPoll);
+      }
+    });
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("lock") === "1") {
+        clearToken();
+        if (window.history.replaceState) {
+          window.history.replaceState({}, "", "/foto");
+        }
+      }
+
+      const photoInput = document.getElementById("photoInput");
+      if (photoInput) {
+        photoInput.addEventListener("change", (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (file) {
+            handleFileSelected(file);
+          }
+          e.target.value = "";
+        });
+      }
+
+      verifySavedSession();
+    });
+  </script>
+</body>
+</html>
